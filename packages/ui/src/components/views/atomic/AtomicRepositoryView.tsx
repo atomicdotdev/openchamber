@@ -2,7 +2,13 @@ import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { dropdownTriggerVariants } from '@/components/ui/dropdown-trigger';
 import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
 import type { AtomicDiffRequest, AtomicHistoryEntry, AtomicStatusEntry, AtomicUnavailableReason, AtomicView } from '@/lib/api/types';
 import { useI18n } from '@/lib/i18n';
@@ -16,7 +22,6 @@ import {
   useAtomicRepositoryActions,
 } from '@/stores/useAtomicStore';
 import { AtomicProvenancePanel } from './AtomicProvenancePanel';
-import { splitAtomicChangePatch, type AtomicPatchSection } from './atomicChangeFiles';
 
 const PatchDiffViewer = lazyWithChunkRecovery(() => import('@/components/diff/PatchDiffViewer').then((module) => ({
   default: module.PatchDiffViewer,
@@ -52,25 +57,26 @@ const unavailableKeys = {
 
 const statusLabel = (kind: AtomicStatusEntry['kind'], t: ReturnType<typeof useI18n>['t']) => t(`atomic.status.${kind}`);
 
-// Atomic returns one hunk per edited region, so a single-file change can carry
-// hundreds of same-file hunks. Group them by path (first-appearance order) into
-// one row per file, joined to the per-file added/removed counts and sliced
-// patch text parsed from the whole-change diff. The hunk list stays
-// authoritative for which files exist and their order; `section` is null when
-// the diff has not loaded or a file could not be resolved in it (still listed).
-// A file whose hunks carry different kinds keeps all distinct kinds so the row
-// never hides that the file was e.g. both renamed and edited.
-type ChangeFileSummary = {
-  path: string;
-  kinds: string[];
-  count: number;
-  section: AtomicPatchSection | null;
-};
+// Single-letter status indicator + its color, mirroring the Git tab's ChangeRow
+// so a working-copy entry reads the same in either rail. Each kind keeps a
+// distinct semantic status token rather than a shared muted color.
+const STATUS_INDICATORS = {
+  added: { code: 'A', color: 'var(--status-success)' },
+  modified: { code: 'M', color: 'var(--status-warning)' },
+  deleted: { code: 'D', color: 'var(--status-error)' },
+  renamed: { code: 'R', color: 'var(--status-info)' },
+  untracked: { code: '?', color: 'var(--status-info)' },
+  conflicted: { code: '!', color: 'var(--status-error)' },
+} satisfies Record<AtomicStatusEntry['kind'], { code: string; color: string }>;
 
-const summarizeChangeFiles = (
-  hunks: readonly { kind: string; path: string }[],
-  sections: ReadonlyMap<string, AtomicPatchSection> = new Map(),
-): ChangeFileSummary[] => {
+// Atomic returns one hunk per edited region, so a single-file change can carry
+// many same-file hunks. Group them by path (first-appearance order) into one
+// summary row per file with a hunk count. A file whose hunks carry different
+// kinds keeps all distinct kinds so the summary never hides that the file was
+// e.g. both renamed and edited.
+type ChangeFileSummary = { path: string; kinds: string[]; count: number };
+
+const summarizeChangeFiles = (hunks: readonly { kind: string; path: string }[]): ChangeFileSummary[] => {
   const byPath = new Map<string, ChangeFileSummary>();
   for (const hunk of hunks) {
     const existing = byPath.get(hunk.path);
@@ -78,48 +84,94 @@ const summarizeChangeFiles = (
       existing.count += 1;
       if (!existing.kinds.includes(hunk.kind)) existing.kinds.push(hunk.kind);
     } else {
-      byPath.set(hunk.path, {
-        path: hunk.path,
-        kinds: [hunk.kind],
-        count: 1,
-        section: sections.get(hunk.path) ?? null,
-      });
+      byPath.set(hunk.path, { path: hunk.path, kinds: [hunk.kind], count: 1 });
     }
   }
   return [...byPath.values()];
 };
 
-// Diffstat badge: +N in success, -M in error, matching how a diff stat reads.
-const DiffStat = ({ added, removed }: { added: number; removed: number }) => (
-  <span className="flex shrink-0 items-center gap-1.5 font-mono typography-micro">
-    <span className="text-[var(--status-success-foreground)]">+{added}</span>
-    <span className="text-[var(--status-error-foreground)]">-{removed}</span>
-  </span>
-);
-
 // Squared, full-width selectable list row. Deliberately not the shared Button:
 // the Button's squircle/pill chrome and focus glow are wrong for a dense
 // selection list, so this uses a rectangular hit target with a theme-bordered
-// selected state (no rounding, edge-to-edge highlight).
+// selected state (no rounding, edge-to-edge highlight) — matching the Git tab.
 const selectableRowClass = (selected: boolean) => cn(
-  'w-full border-l-2 border-transparent px-3 py-2 text-left outline-none transition-colors',
+  'w-full border-l-2 border-transparent px-3 py-1.5 text-left outline-none transition-colors',
   'hover:bg-interactive-hover focus-visible:bg-interactive-hover',
   selected && 'border-l-[color:var(--interactive-border)] bg-interactive-selection text-interactive-selection-foreground',
 );
 
-const ViewRow = ({ view }: { view: AtomicView }) => {
+// Collapsible section header, mirroring the Git ChangesPanel group header: a
+// title, an optional count, and a chevron that rotates when collapsed.
+const SectionHeader = ({ title, count, collapsed, onToggle }: {
+  title: string;
+  count?: number;
+  collapsed: boolean;
+  onToggle: () => void;
+}) => (
+  <button
+    type="button"
+    onClick={onToggle}
+    aria-expanded={!collapsed}
+    className="flex w-full items-center gap-2 px-3 py-2 text-left outline-none focus-visible:bg-interactive-hover"
+  >
+    <h3 className="typography-ui-header font-semibold text-foreground">{title}</h3>
+    {count !== undefined ? <span className="typography-meta text-muted-foreground">{count}</span> : null}
+    <Icon name="arrow-down-s" className={cn('ml-auto size-3.5 shrink-0 text-muted-foreground transition-transform', collapsed && '-rotate-90')} />
+  </button>
+);
+
+// Top value-picker for Atomic views, mirroring the Git branch dropdown. Its
+// chrome comes from `dropdownTriggerVariants`; the trigger only adds layout.
+// Picking a view drives which view's history the History section reads; it does
+// not switch the repository's current view (the panel is read-only).
+const ViewPicker = ({ views, selectedView, onSelectView }: {
+  views: AtomicView[];
+  selectedView: string;
+  onSelectView: (name: string) => void;
+}) => {
   const { t } = useI18n();
+  const active = views.find((view) => view.name === selectedView) ?? views.find((view) => view.current) ?? views[0] ?? null;
   return (
-    <div className={cn('rounded-md border px-3 py-2', view.current ? 'border-[var(--interactive-border)] bg-interactive-selection' : 'border-border bg-[var(--surface-elevated)]')}>
-      <div className="flex items-center justify-between gap-3">
-        <span className="truncate typography-ui-label text-foreground">{view.name}</span>
-        {view.current ? <span className="typography-micro text-interactive-selection-foreground">{t('atomic.view.current')}</span> : null}
-      </div>
-      <div className="mt-1 flex flex-wrap gap-x-3 typography-micro text-muted-foreground">
-        {view.state ? <span>{view.state}</span> : null}
-        {view.changeCount !== null ? <span>{t('atomic.view.changeCount', { count: view.changeCount })}</span> : null}
-      </div>
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className={cn(dropdownTriggerVariants({ size: 'default' }), 'min-w-0 max-w-full flex-1')}
+          aria-label={t('atomic.views.pickerLabel')}
+        >
+          <Icon name="git-branch" className="size-4 text-primary" />
+          <span className="min-w-0 flex-1 truncate font-medium">{active?.name ?? t('atomic.views.none')}</span>
+          <Icon name="arrow-down-s" className="size-4 opacity-60" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-72">
+        {views.map((view) => (
+          <DropdownMenuItem key={view.name} onSelect={() => onSelectView(view.name)}>
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate typography-ui-label text-foreground">{view.name}</span>
+              <span className="flex flex-wrap gap-x-2 typography-micro text-muted-foreground">
+                {view.state ? <span>{view.state}</span> : null}
+                {view.changeCount !== null ? <span>{t('atomic.view.changeCount', { count: view.changeCount })}</span> : null}
+              </span>
+            </span>
+            {view.current ? <Icon name="check" className="ml-auto size-4 shrink-0 text-primary" /> : null}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+};
+
+const WorkingRow = ({ entry, selected, onSelect }: { entry: AtomicStatusEntry; selected: boolean; onSelect: () => void }) => {
+  const { t } = useI18n();
+  const indicator = STATUS_INDICATORS[entry.kind];
+  return (
+    <button type="button" onClick={onSelect} className={cn(selectableRowClass(selected), 'flex items-center gap-2')} title={statusLabel(entry.kind, t)}>
+      <span className="w-4 shrink-0 text-center typography-micro font-semibold uppercase" style={{ color: indicator.color }} aria-label={statusLabel(entry.kind, t)}>
+        {indicator.code}
+      </span>
+      <span className="min-w-0 flex-1 truncate typography-code text-foreground" style={{ direction: 'rtl', textAlign: 'left', unicodeBidi: 'plaintext' }}>{entry.path}</span>
+    </button>
   );
 };
 
@@ -145,8 +197,14 @@ export const AtomicRepositoryView = ({ directory }: { directory: string }) => {
   const [selection, setSelection] = React.useState<
     { kind: 'working'; path: string } | { kind: 'change'; hash: string } | null
   >(null);
+  // Which view's history the History section shows. Empty string means the
+  // repository's current view (the default, un-scoped history request).
+  const [selectedViewName, setSelectedViewName] = React.useState<string>('');
+  const [changesCollapsed, setChangesCollapsed] = React.useState(false);
+  const [historyCollapsed, setHistoryCollapsed] = React.useState(false);
   const overviewQuery = useAtomicOverview(directory);
-  const historyQuery = useAtomicHistory(directory);
+  const isCurrentViewSelected = selectedViewName === '' || overviewQuery.data?.status === 'ready' && overviewQuery.data.currentView.name === selectedViewName;
+  const historyQuery = useAtomicHistory(directory, isCurrentViewSelected ? undefined : { view: selectedViewName });
   const actions = useAtomicRepositoryActions();
   const selectedChangeHash = selection?.kind === 'change' ? selection.hash : '';
   const changeQuery = useAtomicChange(directory, selectedChangeHash);
@@ -162,7 +220,15 @@ export const AtomicRepositoryView = ({ directory }: { directory: string }) => {
 
   React.useEffect(() => {
     setSelection(null);
+    setSelectedViewName('');
   }, [directory]);
+
+  const selectView = (name: string) => {
+    setSelectedViewName(name);
+    if (overviewQuery.data?.status === 'ready' && overviewQuery.data.currentView.name !== name) {
+      actions.selectHistoryView(directory, name);
+    }
+  };
 
   if (!directory) {
     return <StatePanel icon="information" title={t('atomic.unavailable.repository.title')} description={t('atomic.unavailable.repository.description')} />;
@@ -192,10 +258,11 @@ export const AtomicRepositoryView = ({ directory }: { directory: string }) => {
 
   const { currentView, views, workingCopy } = overviewQuery.data;
   const selectedChange = changeQuery.data;
-  const changeFiles = selectedChange ? summarizeChangeFiles(selectedChange.hunks, new Map()) : [];
+  const changeFiles = selectedChange ? summarizeChangeFiles(selectedChange.hunks) : [];
   const provenance = provenanceQuery.data;
   const selectedWorkingPath = selection?.kind === 'working' ? selection.path : null;
   const selectedHistoricalChange = selection?.kind === 'change' ? selection.hash : null;
+  const activeViewName = selectedViewName || currentView.name;
   const selectWorkingPath = (path: string) => {
     setSelection({ kind: 'working', path });
     actions.selectWorkingPath(directory, path);
@@ -212,65 +279,75 @@ export const AtomicRepositoryView = ({ directory }: { directory: string }) => {
           {t('atomic.state.refreshError')}
         </div>
       ) : null}
-      <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
-        <div className="min-w-0">
-          <h2 className="typography-ui-header text-foreground">{t('atomic.title')}</h2>
-          <p className="truncate typography-micro text-muted-foreground">{currentView.name}</p>
-        </div>
-        <Button type="button" variant="ghost" size="sm" disabled={overviewQuery.loading} onClick={() => void actions.refresh(directory)}>
+
+      <header className="flex items-center gap-2 px-3 py-2">
+        <ViewPicker views={views} selectedView={activeViewName} onSelectView={selectView} />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-8 shrink-0"
+          disabled={overviewQuery.loading}
+          onClick={() => void actions.refresh(directory)}
+          aria-label={t('atomic.action.refresh')}
+          title={t('atomic.action.refresh')}
+        >
           <Icon name="refresh" className={cn('size-4', overviewQuery.loading && 'animate-spin')} />
-          {t('atomic.action.refresh')}
         </Button>
-      </div>
+      </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-auto lg:grid-cols-[18rem_minmax(0,1fr)] lg:overflow-hidden">
-        <aside className="space-y-4 border-b border-border p-3 lg:overflow-y-auto lg:border-b-0 lg:border-r">
-          <section>
-            <h3 className="mb-2 typography-ui-label text-muted-foreground">{t('atomic.section.views')}</h3>
-            <div className="space-y-1.5">{views.map((view) => <ViewRow key={view.name} view={view} />)}</div>
-          </section>
-          <section>
-            <h3 className="mb-2 typography-ui-label text-muted-foreground">{t('atomic.section.working')}</h3>
-            {workingCopy.clean ? (
-              <div className="rounded-md border border-border p-3 typography-ui-label text-muted-foreground">{t('atomic.state.clean')}</div>
-            ) : (
-              <div className="-mx-3">
-                {workingCopy.entries.map((entry) => (
-                  <button
-                    key={`${entry.kind}:${entry.path}`}
-                    type="button"
-                    onClick={() => selectWorkingPath(entry.path)}
-                    className={cn(selectableRowClass(selectedWorkingPath === entry.path), 'flex items-center gap-2')}
-                  >
-                    <span className="w-16 shrink-0 typography-micro text-muted-foreground">{statusLabel(entry.kind, t)}</span>
-                    <span className="min-w-0 truncate typography-code">{entry.path}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </section>
-          <section>
-            <h3 className="mb-2 typography-ui-label text-muted-foreground">{t('atomic.section.history')}</h3>
-            {historyQuery.data?.changes.length ? (
-              <div className="-mx-3">{historyQuery.data.changes.map((entry) => (
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <section className="border-t border-border">
+          <SectionHeader
+            title={t('atomic.section.changes')}
+            count={workingCopy.entries.length}
+            collapsed={changesCollapsed}
+            onToggle={() => setChangesCollapsed((value) => !value)}
+          />
+          {changesCollapsed ? null : workingCopy.clean ? (
+            <p className="px-3 pb-3 typography-ui-label text-muted-foreground">{t('atomic.state.clean')}</p>
+          ) : (
+            <div role="list" aria-label={t('atomic.section.changes')}>
+              {workingCopy.entries.map((entry) => (
+                <WorkingRow
+                  key={`${entry.kind}:${entry.path}`}
+                  entry={entry}
+                  selected={selectedWorkingPath === entry.path}
+                  onSelect={() => selectWorkingPath(entry.path)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="border-t border-border">
+          <SectionHeader
+            title={t('atomic.section.history')}
+            count={historyQuery.data?.changes.length}
+            collapsed={historyCollapsed}
+            onToggle={() => setHistoryCollapsed((value) => !value)}
+          />
+          {historyCollapsed ? null : historyQuery.data?.changes.length ? (
+            <div role="list" aria-label={t('atomic.section.history')}>
+              {historyQuery.data.changes.map((entry) => (
                 <HistoryRow key={entry.hash} entry={entry} selected={selectedHistoricalChange === entry.hash} onSelect={() => selectChange(entry.hash)} />
-              ))}</div>
-            ) : historyQuery.loading ? (
-              <p className="p-2 typography-ui-label text-muted-foreground">{t('atomic.state.loading')}</p>
-            ) : historyQuery.error ? (
-              <p className="rounded-md border border-[var(--status-error-border)] bg-[var(--status-error-background)] p-3 typography-ui-label text-[var(--status-error-foreground)]">{t('atomic.state.initialError.description')}</p>
-            ) : (
-              <p className="rounded-md border border-border p-3 typography-ui-label text-muted-foreground">{t('atomic.state.noHistory')}</p>
-            )}
-          </section>
-        </aside>
+              ))}
+            </div>
+          ) : historyQuery.loading ? (
+            <p className="px-3 pb-3 typography-ui-label text-muted-foreground">{t('atomic.state.loading')}</p>
+          ) : historyQuery.error ? (
+            <p className="mx-3 mb-3 rounded-md border border-[var(--status-error-border)] bg-[var(--status-error-background)] p-3 typography-ui-label text-[var(--status-error-foreground)]">{t('atomic.state.initialError.description')}</p>
+          ) : (
+            <p className="px-3 pb-3 typography-ui-label text-muted-foreground">{t('atomic.state.noHistory')}</p>
+          )}
+        </section>
 
-        <main className="min-h-[24rem] min-w-0 overflow-auto p-3 lg:min-h-0">
+        <section className="min-h-[16rem] flex-1 border-t border-border p-3">
           {changeQuery.loading || diffQuery.loading ? (
             <StatePanel icon="loader-4" title={t('atomic.state.loadingDetail')} />
           ) : selectedChange ? (
             <div className="space-y-3">
-              <section className="rounded-lg border border-border bg-[var(--surface-elevated)] p-3">
+              <div className="rounded-lg border border-border bg-[var(--surface-elevated)] p-3">
                 <h3 className="typography-ui-header text-foreground">{selectedChange.message}</h3>
                 <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 typography-ui-label">
                   <dt className="text-muted-foreground">{t('atomic.change.hash')}</dt><dd className="font-mono">{selectedChange.hash}</dd>
@@ -283,7 +360,7 @@ export const AtomicRepositoryView = ({ directory }: { directory: string }) => {
                     {file.count > 1 ? <span className="shrink-0 typography-micro">{t('atomic.change.hunkCount', { count: file.count })}</span> : null}
                   </li>
                 ))}</ul> : null}
-              </section>
+              </div>
               {diffQuery.data?.diff ? <React.Suspense fallback={<RawPatch patch={diffQuery.data.diff} />}><PatchDiffViewer patch={diffQuery.data.diff} /></React.Suspense> : diffQuery.error ? <StatePanel icon="error-warning" title={t('atomic.state.initialError.title')} description={t('atomic.state.initialError.description')} error /> : <StatePanel icon="information" title={t('atomic.state.noDiff')} />}
               {provenance?.status === 'available' ? <AtomicProvenancePanel document={provenance.document} /> : provenanceQuery.loading ? <StatePanel icon="loader-4" title={t('atomic.state.loadingProvenance')} /> : provenanceQuery.error || provenance?.reason === 'error' ? <StatePanel icon="error-warning" title={t('atomic.state.initialError.title')} description={t('atomic.state.initialError.description')} error /> : <StatePanel icon="information" title={t('atomic.state.noProvenance')} />}
             </div>
@@ -292,7 +369,7 @@ export const AtomicRepositoryView = ({ directory }: { directory: string }) => {
           ) : (
             <StatePanel icon="information" title={workingCopy.clean ? t('atomic.state.clean') : t('atomic.state.selectChange')} />
           )}
-        </main>
+        </section>
       </div>
     </div>
   );
