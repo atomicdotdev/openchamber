@@ -12,6 +12,11 @@ Keep `bridge.ts` as a thin orchestration layer that delegates message handling t
   - Entry orchestration layer for bridge messages.
   - Delegates to specialized runtimes in order and handles only unmatched fallthrough cases.
 
+- `bridge-atomic-runtime.ts`
+  - Validates read-only Atomic overview, diff, history, change, and provenance bridge requests.
+  - Delegates to an injected server Atomic runtime when one is available; it does not duplicate Atomic CLI or process behavior.
+  - Returns an explicit unavailable error when the host has no Atomic runtime, before the generic OpenCode proxy can handle the request accidentally.
+
 - `bridge-git-runtime.ts`
   - Standard Git message handlers.
 

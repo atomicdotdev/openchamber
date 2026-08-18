@@ -5,6 +5,7 @@ import type { ContextPanelMode } from '@/stores/useUIStore';
 export type ContextSurfaceId =
   | 'editor'
   | 'git'
+  | 'atomic'
   | 'pr'
   | 'diff'
   | 'walkthrough'
@@ -54,6 +55,15 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
     mode: 'git',
     icon: 'git-branch',
     labelKey: 'layout.rightSidebar.git',
+    availability: 'always',
+  },
+  {
+    id: 'atomic',
+    descriptionKey: 'contextRail.surface.atomic.description',
+    defaultWidthFraction: 3 / 5,
+    mode: 'atomic',
+    icon: 'git-repository',
+    labelKey: 'atomic.title',
     availability: 'always',
   },
   {

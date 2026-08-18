@@ -15,6 +15,7 @@ const WalkthroughView = lazyWithChunkRecovery(() => import('@/components/views/w
 const DiffView = lazyWithChunkRecovery(() => import('@/components/views/DiffView').then((m) => ({ default: m.DiffView })));
 const FilesView = lazyWithChunkRecovery(() => import('@/components/views/FilesView').then((m) => ({ default: m.FilesView })));
 const GitView = lazyWithChunkRecovery(() => import('@/components/views/GitView').then((m) => ({ default: m.GitView })));
+const AtomicRepositoryView = lazyWithChunkRecovery(() => import('@/components/views/atomic/AtomicRepositoryView').then((m) => ({ default: m.AtomicRepositoryView })));
 const PlanView = lazyWithChunkRecovery(() => import('@/components/views/PlanView').then((m) => ({ default: m.PlanView })));
 import { ProjectContextPanel } from './RightSidebarTabs';
 import { SidebarFilesTree } from './SidebarFilesTree';
@@ -117,6 +118,7 @@ const getModeLabel = (
   if (mode === 'plan') return t('contextPanel.mode.plan');
   if (mode === 'browser') return t('contextPanel.mode.browser');
   if (mode === 'git') return t('layout.rightSidebar.git');
+  if (mode === 'atomic') return t('atomic.title');
   if (mode === 'pr') return t('contextPanel.mode.pr');
   if (mode === 'notes') return t('contextRail.surface.notes');
   if (mode === 'terminal') return t('layout.mainTab.terminal');
@@ -206,6 +208,10 @@ const getTabIcon = (
 
   if (tab.mode === 'git') {
     return <Icon name="git-branch" className="h-3.5 w-3.5" />;
+  }
+
+  if (tab.mode === 'atomic') {
+    return <Icon name="git-repository" className="h-3.5 w-3.5" />;
   }
 
   if (tab.mode === 'pr') {
@@ -935,6 +941,8 @@ export const ContextPanel: React.FC = () => {
         ? <ContextPanelContent />
         : activeTab?.mode === 'git'
             ? <React.Suspense fallback={null}><GitView isActive={isOpen} /></React.Suspense>
+            : activeTab?.mode === 'atomic'
+                ? <React.Suspense fallback={null}><AtomicRepositoryView directory={effectiveDirectory} /></React.Suspense>
             : activeTab?.mode === 'pr'
                 ? <PullRequestView />
             : activeTab?.mode === 'notes'

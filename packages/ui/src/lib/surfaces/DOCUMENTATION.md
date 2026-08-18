@@ -54,3 +54,5 @@ the `openContext*` actions in `useUIStore`.
   surfaces must restore their state from stores or snapshots.
 - Runtime scope: desktop/web `MainLayout` only. VS Code and the dedicated
   mobile shell have their own layouts and do not consume this registry.
+  The read-only Atomic repository view is also linked from VS Code's own
+  navigation; it does not add a dedicated mobile navigation surface.

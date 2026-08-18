@@ -10,6 +10,7 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { resolveGlobalSessionDirectory, useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { contextTokensFromBreakdown } from '@/stores/utils/tokenUtils';
 import { ContextUsageDisplay } from '@/components/ui/ContextUsageDisplay';
+import { Button } from '@/components/ui/button';
 import { McpDropdown } from '@/components/mcp/McpDropdown';
 import { ArchiveAllDropdown } from '@/components/session/ArchiveAllDropdown';
 import { SessionSwitcherDropdown } from '@/components/session/SessionSwitcherDropdown';
@@ -43,6 +44,7 @@ import type { SessionContextUsage } from '@/stores/types/sessionTypes';
 import { useUIStore, type TimeFormatPreference } from '@/stores/useUIStore';
 
 const SettingsView = lazyWithChunkRecovery(() => import('@/components/views/SettingsView').then(m => ({ default: m.SettingsView })));
+const AtomicRepositoryView = lazyWithChunkRecovery(() => import('@/components/views/atomic/AtomicRepositoryView').then(m => ({ default: m.AtomicRepositoryView })));
 
 const formatTime = (timestamp: number | null, timeFormatPreference: TimeFormatPreference) => {
   if (!timestamp) return '-';
@@ -71,7 +73,7 @@ const normalizePath = (value?: string | null): string | null => {
   return replaced.length > 1 ? replaced.replace(/\/+$/, '') : replaced;
 };
 
-type VSCodeView = 'sessions' | 'chat' | 'settings';
+type VSCodeView = 'sessions' | 'chat' | 'atomic' | 'settings';
 
 export const VSCodeLayout: React.FC = () => {
   const { t } = useI18n();
@@ -368,6 +370,8 @@ export const VSCodeLayout: React.FC = () => {
         setCurrentView('chat');
       } else if (view === 'sessions') {
         setCurrentView('sessions');
+      } else if (view === 'atomic') {
+        setCurrentView('atomic');
       }
     };
     window.addEventListener('openchamber:navigate', handler as EventListener);
@@ -556,6 +560,17 @@ export const VSCodeLayout: React.FC = () => {
             forceMobile={usesMobileLayout}
           />
         </React.Suspense>
+      ) : currentView === 'atomic' ? (
+        <div className="flex h-full flex-col">
+          <VSCodeHeader title={t('atomic.title')} showBack onBack={handleBackToSessions} />
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <ErrorBoundary>
+              <React.Suspense fallback={null}>
+                <AtomicRepositoryView directory={activeWorkspacePath ?? ''} />
+              </React.Suspense>
+            </ErrorBoundary>
+          </div>
+        </div>
       ) : usesExpandedLayout ? (
         // Expanded layout: sessions sidebar + chat side by side
         <div className="flex h-full">
@@ -591,6 +606,7 @@ export const VSCodeLayout: React.FC = () => {
               showContextUsage
               showRateLimits
               enableSessionSwitcher
+              onAtomic={() => setCurrentView('atomic')}
             />
             <div className="flex-1 overflow-hidden">
               <ErrorBoundary>
@@ -608,6 +624,7 @@ export const VSCodeLayout: React.FC = () => {
               <VSCodeHeader
                 title={t('vscodeLayout.title.sessions')}
                 onArchiveAll={handleArchiveAll}
+                onAtomic={() => setCurrentView('atomic')}
               />
               <div className="flex-1 overflow-hidden">
                 <SessionSidebar
@@ -647,6 +664,7 @@ interface VSCodeHeaderProps {
   title: string;
   showBack?: boolean;
   onBack?: () => void;
+  onAtomic?: () => void;
   onArchiveAll?: () => void;
   onNewSession?: () => void;
   onSettings?: () => void;
@@ -658,7 +676,7 @@ interface VSCodeHeaderProps {
 }
 
 
-const VSCodeHeader: React.FC<VSCodeHeaderProps> = ({ title, showBack, onBack, onArchiveAll, onNewSession, onSettings, onAgentManager, showMcp, showContextUsage, showRateLimits, enableSessionSwitcher }) => {
+const VSCodeHeader: React.FC<VSCodeHeaderProps> = ({ title, showBack, onBack, onAtomic, onArchiveAll, onNewSession, onSettings, onAgentManager, showMcp, showContextUsage, showRateLimits, enableSessionSwitcher }) => {
   const { t } = useI18n();
   const showArchivedSessions = useSessionDisplayStore((state) => state.showArchivedSessions);
   const toggleArchivedSessions = useSessionDisplayStore((state) => state.toggleArchivedSessions);
@@ -854,6 +872,11 @@ const VSCodeHeader: React.FC<VSCodeHeaderProps> = ({ title, showBack, onBack, on
         </button>
       )}
       {onArchiveAll && <ArchiveAllDropdown onArchiveAll={onArchiveAll} />}
+      {onAtomic && (
+        <Button type="button" variant="ghost" size="icon" onClick={onAtomic} aria-label={t('vscodeLayout.actions.atomicAria')} title={t('vscodeLayout.actions.atomicAria')}>
+          <Icon name="git-repository" className="h-5 w-5" />
+        </Button>
+      )}
       {onNewSession && (
         <button
           onClick={onNewSession}

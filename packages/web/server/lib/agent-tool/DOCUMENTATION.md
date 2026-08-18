@@ -28,8 +28,26 @@ both settings are `false`.
 
 1. The OpenChamber HTTP listener binds and publishes its authoritative port.
 2. `prepareManagedOpenCodeEnv()` materializes the plugin under
-   `<openchamber-data-dir>/agent-tool/` and appends its `file://` URL to
-   `OPENCODE_CONFIG_CONTENT` without replacing existing plugin entries.
+   `<openchamber-data-dir>/agent-tool/` and builds `OPENCODE_CONFIG_CONTENT`
+   without replacing existing plugin entries: it seeds the plugin array from
+   the resolved on-disk **user-scope** OpenCode config, keeps any plugins the
+   inline base config already carried, and appends its own `file://` URL last.
+   OpenCode ignores the on-disk config when handed an inline
+   `OPENCODE_CONFIG_CONTENT`, so without this seeding, globally declared hooks
+   (for example the Atomic VCS integration in
+   `~/.config/opencode/opencode.json`) would silently stop loading whenever the
+   managed tool is injected. Ordering is file-declared first, inline next, the
+   managed plugin last; specs are deduplicated across all three so a plugin
+   present in more than one source appears once. Project-scope plugins are
+   intentionally excluded: one managed OpenCode process serves many project
+   directories, so no single project's config may define the process-wide
+   plugin list. A missing, empty, comment-only, or malformed on-disk config
+   contributes no plugins and never fails the launch; a malformed inline base
+   config is still a hard error. Path-style specs (for example
+   `./plugins/atomic-hooks.ts`) are resolved to an absolute path against their
+   config file's directory before being carried forward, because the original
+   base directory is lost once the spec travels in a process-wide inline
+   config; npm specs and existing absolute / `file://` specs are untouched.
 3. A random per-child token and loopback callback URL are added only to the
    managed OpenCode child environment.
 4. The plugin calls `POST /api/openchamber/agent-tool` with its typed input and

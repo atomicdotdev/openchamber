@@ -1,5 +1,9 @@
 import { parse as parseJsonc } from 'jsonc-parser';
+import path from 'node:path';
+import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
+import { readConfigLayers } from '../opencode/shared.js';
+import { isPathSpec, parsePathSpec } from '../opencode/plugin-spec.js';
 import {
   OPENCHAMBER_AGENT_TOOL_ACTION_DEFINITIONS,
   OPENCHAMBER_AGENT_TOOL_ACTIONS,
@@ -252,7 +256,7 @@ ${entries.join('')}  },
 `;
 };
 
-const mergePluginConfig = (rawConfig, pluginUrl) => {
+const mergePluginConfig = (rawConfig, pluginUrl, filePlugins = []) => {
   const errors = [];
   const parsed = asNonEmptyString(rawConfig) ? parseJsonc(rawConfig, errors, { allowTrailingComma: true }) : {};
   if (errors.length > 0 || !parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -262,11 +266,73 @@ const mergePluginConfig = (rawConfig, pluginUrl) => {
     throw new Error('OPENCODE_CONFIG_CONTENT plugin must be an array before OpenChamber can inject its managed tool');
   }
   const configured = Array.isArray(parsed.plugin) ? parsed.plugin : [];
+  // Seed from file-declared plugins first: an inline OPENCODE_CONFIG_CONTENT
+  // makes OpenCode ignore the on-disk user/project config, so plugins declared
+  // there (e.g. the Atomic VCS hooks) would otherwise never load. File-declared
+  // entries that the inline base already carries are dropped to avoid duplicates.
+  const isManaged = (value) => value === pluginUrl || (Array.isArray(value) && value[0] === pluginUrl);
+  const specOf = (value) => (Array.isArray(value) ? value[0] : value);
+  const configuredSpecs = new Set(configured.map(specOf));
+  const seededFilePlugins = filePlugins.filter(
+    (value) => !isManaged(value) && !configuredSpecs.has(specOf(value)),
+  );
   parsed.plugin = [
-    ...configured.filter((value) => value !== pluginUrl && (!Array.isArray(value) || value[0] !== pluginUrl)),
+    ...seededFilePlugins,
+    ...configured.filter((value) => !isManaged(value)),
     pluginUrl,
   ];
   return JSON.stringify(parsed);
+};
+
+// The user-scoped OpenCode config plugin array, resolved through the shared
+// config reader. OpenCode drops the on-disk config when handed an inline
+// config, so the managed env must carry these forward — this is where global
+// hooks like the Atomic VCS integration are declared. Project-scoped plugins
+// are intentionally excluded: one managed OpenCode process serves many project
+// directories, so no single project's config may define the process-wide
+// plugin list. A missing or malformed config must never fail the launch; it
+// simply contributes no plugins.
+//
+// Path-style specs are resolved to an absolute path against their config
+// file's own directory: a relative spec like "./plugins/atomic-hooks.ts" in the
+// user config resolves against ~/.config/opencode there, but once it travels in
+// a process-wide inline OPENCODE_CONFIG_CONTENT the original base directory is
+// lost, so it must be made absolute before it moves. npm specs and existing
+// absolute / file:// specs are carried through untouched.
+const resolveConfiguredPluginSpec = (spec, configDir) => {
+  if (!isPathSpec(spec)) return spec;
+  try {
+    return parsePathSpec(spec, { homedir: homedir(), cwd: configDir }).absolutePath;
+  } catch {
+    return spec;
+  }
+};
+
+const readConfiguredFilePlugins = () => {
+  try {
+    const { userConfig, customConfig, paths } = readConfigLayers(null);
+    const layers = [
+      { config: customConfig, dir: paths?.customPath ? path.dirname(paths.customPath) : null },
+      { config: userConfig, dir: paths?.userPath ? path.dirname(paths.userPath) : null },
+    ];
+    const collected = [];
+    const seen = new Set();
+    for (const { config, dir } of layers) {
+      if (!dir) continue;
+      const plugins = Array.isArray(config?.plugin) ? config.plugin : [];
+      for (const value of plugins) {
+        const rawSpec = asNonEmptyString(Array.isArray(value) ? value[0] : value);
+        if (!rawSpec) continue;
+        const resolvedSpec = resolveConfiguredPluginSpec(rawSpec, dir);
+        if (seen.has(resolvedSpec)) continue;
+        seen.add(resolvedSpec);
+        collected.push(Array.isArray(value) ? [resolvedSpec, ...value.slice(1)] : resolvedSpec);
+      }
+    }
+    return collected;
+  } catch {
+    return [];
+  }
 };
 
 export const createAgentToolRuntime = (dependencies) => {
@@ -278,6 +344,7 @@ export const createAgentToolRuntime = (dependencies) => {
     getActivePort,
     executeAction,
     env = process.env,
+    readFilePlugins = readConfiguredFilePlugins,
   } = dependencies;
   const pluginDirectory = path.join(dataDir, 'agent-tool');
   const pluginPath = path.join(pluginDirectory, 'openchamber-plugin.js');
@@ -296,7 +363,7 @@ export const createAgentToolRuntime = (dependencies) => {
     activeToken = crypto.randomBytes(32).toString('base64url');
     const pluginUrl = pathToFileURL(pluginPath).href;
     return {
-      OPENCODE_CONFIG_CONTENT: mergePluginConfig(env.OPENCODE_CONFIG_CONTENT, pluginUrl),
+      OPENCODE_CONFIG_CONTENT: mergePluginConfig(env.OPENCODE_CONFIG_CONTENT, pluginUrl, readFilePlugins()),
       OPENCHAMBER_AGENT_TOOL_URL: `http://127.0.0.1:${port}/api/openchamber/agent-tool`,
       OPENCHAMBER_AGENT_TOOL_TOKEN: activeToken,
     };

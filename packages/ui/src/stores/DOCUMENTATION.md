@@ -25,6 +25,7 @@ These are the most performance-sensitive.
 
 - `useGitStore.ts`
 - `useGitHubPrStatusStore.ts`
+- `useAtomicStore.ts`
 - `useFilesViewTabsStore.ts`
 
 These stores act like centralized keyed caches. UI should consume narrow slices from them instead of re-fetching the same data in multiple places.
@@ -181,6 +182,19 @@ Important properties:
 - hydrate restores a persisted closed/merged PR but resets its `lastDiscoveryPollAt`, so revalidation runs on the first watcher tick after a reload
 - a successful refresh that returns `pr: null` replaces any previously cached PR authoritatively; a failed refresh keeps the previous one
 
+### `useAtomicStore.ts`
+
+`useAtomicStore` is the read-only, active-runtime Atomic cache. It owns independent per-directory channels for overview, history, change detail, diff, and provenance data.
+
+Important properties:
+
+- visible consumers explicitly request the data they need; there is no polling, persistence, or store-owned selection state
+- identical in-flight requests are shared, while per-channel generations and runtime reset reject stale completions
+- each channel tracks loading and errors independently; failure preserves its prior successful value, and successful empty results remain authoritative
+- keyed history, change, diff, and provenance selectors subscribe to one request result rather than the directory map
+- diff results are bounded per directory by count and UTF-8 bytes; a single oversized result is rejected without replacing a prior cached diff
+- updates clone only the affected directory entry, preserving unrelated directory references
+
 ## Ownership Rules
 
 These rules are important. Breaking them tends to reintroduce idle CPU churn, stale UI, or rerender fanout.
@@ -195,6 +209,7 @@ These rules are important. Breaking them tends to reintroduce idle CPU churn, st
 8. File tree Git status should update only when the file tree is visible.
 9. Global session refresh must remain bounded and failure-isolated per directory.
 10. Global session cache must not drive live activity indicators or message-loading state.
+11. Atomic reads must be driven by visible demand and must not add polling or persisted snapshots.
 
 ## Selector Rules
 
