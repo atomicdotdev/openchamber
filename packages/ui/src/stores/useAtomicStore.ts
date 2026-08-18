@@ -379,6 +379,13 @@ const atomicRepositoryActions = {
       }
     }).catch(() => undefined);
   },
+  // Load the change log for a specific view without touching the repository's
+  // current view. Histories are cached per { limit, view }, so inspecting a
+  // non-current view never clobbers the current view's cached log.
+  selectHistoryView(directory: string, view: string): void {
+    const atomic = requireAtomicAPI();
+    void useAtomicStore.getState().loadHistory(directory, atomic, { view }).catch(() => undefined);
+  },
 };
 
 export const useAtomicRepositoryActions = () => atomicRepositoryActions;

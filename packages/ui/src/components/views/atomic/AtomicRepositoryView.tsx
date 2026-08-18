@@ -2,6 +2,7 @@ import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
 import type { AtomicDiffRequest, AtomicHistoryEntry, AtomicStatusEntry, AtomicUnavailableReason, AtomicView } from '@/lib/api/types';
 import { useI18n } from '@/lib/i18n';
@@ -15,6 +16,7 @@ import {
   useAtomicRepositoryActions,
 } from '@/stores/useAtomicStore';
 import { AtomicProvenancePanel } from './AtomicProvenancePanel';
+import { splitAtomicChangePatch, type AtomicPatchSection } from './atomicChangeFiles';
 
 const PatchDiffViewer = lazyWithChunkRecovery(() => import('@/components/diff/PatchDiffViewer').then((module) => ({
   default: module.PatchDiffViewer,
@@ -48,6 +50,63 @@ const unavailableKeys = {
   error: { title: 'atomic.unavailable.error.title', description: 'atomic.unavailable.error.description' },
 } satisfies Record<AtomicUnavailableReason, { title: Parameters<ReturnType<typeof useI18n>['t']>[0]; description: Parameters<ReturnType<typeof useI18n>['t']>[0] }>;
 
+const statusLabel = (kind: AtomicStatusEntry['kind'], t: ReturnType<typeof useI18n>['t']) => t(`atomic.status.${kind}`);
+
+// Atomic returns one hunk per edited region, so a single-file change can carry
+// hundreds of same-file hunks. Group them by path (first-appearance order) into
+// one row per file, joined to the per-file added/removed counts and sliced
+// patch text parsed from the whole-change diff. The hunk list stays
+// authoritative for which files exist and their order; `section` is null when
+// the diff has not loaded or a file could not be resolved in it (still listed).
+// A file whose hunks carry different kinds keeps all distinct kinds so the row
+// never hides that the file was e.g. both renamed and edited.
+type ChangeFileSummary = {
+  path: string;
+  kinds: string[];
+  count: number;
+  section: AtomicPatchSection | null;
+};
+
+const summarizeChangeFiles = (
+  hunks: readonly { kind: string; path: string }[],
+  sections: ReadonlyMap<string, AtomicPatchSection> = new Map(),
+): ChangeFileSummary[] => {
+  const byPath = new Map<string, ChangeFileSummary>();
+  for (const hunk of hunks) {
+    const existing = byPath.get(hunk.path);
+    if (existing) {
+      existing.count += 1;
+      if (!existing.kinds.includes(hunk.kind)) existing.kinds.push(hunk.kind);
+    } else {
+      byPath.set(hunk.path, {
+        path: hunk.path,
+        kinds: [hunk.kind],
+        count: 1,
+        section: sections.get(hunk.path) ?? null,
+      });
+    }
+  }
+  return [...byPath.values()];
+};
+
+// Diffstat badge: +N in success, -M in error, matching how a diff stat reads.
+const DiffStat = ({ added, removed }: { added: number; removed: number }) => (
+  <span className="flex shrink-0 items-center gap-1.5 font-mono typography-micro">
+    <span className="text-[var(--status-success-foreground)]">+{added}</span>
+    <span className="text-[var(--status-error-foreground)]">-{removed}</span>
+  </span>
+);
+
+// Squared, full-width selectable list row. Deliberately not the shared Button:
+// the Button's squircle/pill chrome and focus glow are wrong for a dense
+// selection list, so this uses a rectangular hit target with a theme-bordered
+// selected state (no rounding, edge-to-edge highlight).
+const selectableRowClass = (selected: boolean) => cn(
+  'w-full border-l-2 border-transparent px-3 py-2 text-left outline-none transition-colors',
+  'hover:bg-interactive-hover focus-visible:bg-interactive-hover',
+  selected && 'border-l-[color:var(--interactive-border)] bg-interactive-selection text-interactive-selection-foreground',
+);
+
 const ViewRow = ({ view }: { view: AtomicView }) => {
   const { t } = useI18n();
   return (
@@ -63,39 +122,6 @@ const ViewRow = ({ view }: { view: AtomicView }) => {
     </div>
   );
 };
-
-const statusLabel = (kind: AtomicStatusEntry['kind'], t: ReturnType<typeof useI18n>['t']) => t(`atomic.status.${kind}`);
-
-// Atomic returns one hunk per edited region, so a single-file change can carry
-// hundreds of same-file hunks. Group them by path (first-appearance order) into
-// one summary row per file with a hunk count, mirroring `atomic change` output.
-// A file whose hunks carry different kinds keeps all distinct kinds so the
-// summary never hides that the file was e.g. both renamed and edited.
-type ChangeFileSummary = { path: string; kinds: string[]; count: number };
-
-const summarizeHunksByFile = (hunks: readonly { kind: string; path: string }[]): ChangeFileSummary[] => {
-  const byPath = new Map<string, ChangeFileSummary>();
-  for (const hunk of hunks) {
-    const existing = byPath.get(hunk.path);
-    if (existing) {
-      existing.count += 1;
-      if (!existing.kinds.includes(hunk.kind)) existing.kinds.push(hunk.kind);
-    } else {
-      byPath.set(hunk.path, { path: hunk.path, kinds: [hunk.kind], count: 1 });
-    }
-  }
-  return [...byPath.values()];
-};
-
-// Squared, full-width selectable list row. Deliberately not the shared Button:
-// the Button's squircle/pill chrome and focus glow are wrong for a dense
-// selection list, so this uses a rectangular hit target with a theme-bordered
-// selected state (no rounding, edge-to-edge highlight).
-const selectableRowClass = (selected: boolean) => cn(
-  'w-full border-l-2 border-transparent px-3 py-2 text-left outline-none transition-colors',
-  'hover:bg-interactive-hover focus-visible:bg-interactive-hover',
-  selected && 'border-l-[color:var(--interactive-border)] bg-interactive-selection text-interactive-selection-foreground',
-);
 
 const HistoryRow = ({ entry, selected, onSelect }: { entry: AtomicHistoryEntry; selected: boolean; onSelect: () => void }) => {
   const { locale, t } = useI18n();
@@ -166,7 +192,7 @@ export const AtomicRepositoryView = ({ directory }: { directory: string }) => {
 
   const { currentView, views, workingCopy } = overviewQuery.data;
   const selectedChange = changeQuery.data;
-  const changeFiles = selectedChange ? summarizeHunksByFile(selectedChange.hunks) : [];
+  const changeFiles = selectedChange ? summarizeChangeFiles(selectedChange.hunks, new Map()) : [];
   const provenance = provenanceQuery.data;
   const selectedWorkingPath = selection?.kind === 'working' ? selection.path : null;
   const selectedHistoricalChange = selection?.kind === 'change' ? selection.hash : null;
