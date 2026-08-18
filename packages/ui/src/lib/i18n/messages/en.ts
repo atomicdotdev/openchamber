@@ -1209,6 +1209,7 @@ export const dict = {
   'atomic.status.untracked': 'Untracked',
   'atomic.status.conflicted': 'Conflict',
   'atomic.change.sequence': 'Sequence {sequence}',
+  'atomic.change.hunkCount': '×{count}',
   'atomic.change.hash': 'Change',
   'atomic.change.author': 'Author',
   'atomic.change.state': 'State',

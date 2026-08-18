@@ -1222,6 +1222,7 @@ export const dict: Record<I18nKey, string> = {
   'atomic.status.untracked': '未追蹤',
   'atomic.status.conflicted': '衝突',
   'atomic.change.sequence': '序號 {sequence}',
+  'atomic.change.hunkCount': '×{count}',
   'atomic.change.hash': '變更',
   'atomic.change.author': '作者',
   'atomic.change.state': '狀態',

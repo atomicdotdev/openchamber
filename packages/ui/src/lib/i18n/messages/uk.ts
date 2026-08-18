@@ -1210,6 +1210,7 @@ export const dict: Record<I18nKey, string> = {
   'atomic.status.untracked': 'Не відстежується',
   'atomic.status.conflicted': 'Конфлікт',
   'atomic.change.sequence': 'Послідовність {sequence}',
+  'atomic.change.hunkCount': '×{count}',
   'atomic.change.hash': 'Зміна',
   'atomic.change.author': 'Автор',
   'atomic.change.state': 'Стан',

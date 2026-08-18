@@ -1522,6 +1522,7 @@ export const dict: Record<I18nKey, string> = {
   'atomic.status.untracked': 'Nieśledzony',
   'atomic.status.conflicted': 'Konflikt',
   'atomic.change.sequence': 'Kolejność {sequence}',
+  'atomic.change.hunkCount': '×{count}',
   'atomic.change.hash': 'Zmiana',
   'atomic.change.author': 'Autor',
   'atomic.change.state': 'Stan',

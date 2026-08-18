@@ -1210,6 +1210,7 @@ export const dict: Record<I18nKey, string> = {
   'atomic.status.untracked': '추적되지 않음',
   'atomic.status.conflicted': '충돌',
   'atomic.change.sequence': '순서 {sequence}',
+  'atomic.change.hunkCount': '×{count}',
   'atomic.change.hash': '변경',
   'atomic.change.author': '작성자',
   'atomic.change.state': '상태',

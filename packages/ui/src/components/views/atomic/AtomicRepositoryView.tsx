@@ -66,11 +66,42 @@ const ViewRow = ({ view }: { view: AtomicView }) => {
 
 const statusLabel = (kind: AtomicStatusEntry['kind'], t: ReturnType<typeof useI18n>['t']) => t(`atomic.status.${kind}`);
 
+// Atomic returns one hunk per edited region, so a single-file change can carry
+// hundreds of same-file hunks. Group them by path (first-appearance order) into
+// one summary row per file with a hunk count, mirroring `atomic change` output.
+// A file whose hunks carry different kinds keeps all distinct kinds so the
+// summary never hides that the file was e.g. both renamed and edited.
+type ChangeFileSummary = { path: string; kinds: string[]; count: number };
+
+const summarizeHunksByFile = (hunks: readonly { kind: string; path: string }[]): ChangeFileSummary[] => {
+  const byPath = new Map<string, ChangeFileSummary>();
+  for (const hunk of hunks) {
+    const existing = byPath.get(hunk.path);
+    if (existing) {
+      existing.count += 1;
+      if (!existing.kinds.includes(hunk.kind)) existing.kinds.push(hunk.kind);
+    } else {
+      byPath.set(hunk.path, { path: hunk.path, kinds: [hunk.kind], count: 1 });
+    }
+  }
+  return [...byPath.values()];
+};
+
+// Squared, full-width selectable list row. Deliberately not the shared Button:
+// the Button's squircle/pill chrome and focus glow are wrong for a dense
+// selection list, so this uses a rectangular hit target with a theme-bordered
+// selected state (no rounding, edge-to-edge highlight).
+const selectableRowClass = (selected: boolean) => cn(
+  'w-full border-l-2 border-transparent px-3 py-2 text-left outline-none transition-colors',
+  'hover:bg-interactive-hover focus-visible:bg-interactive-hover',
+  selected && 'border-l-[color:var(--interactive-border)] bg-interactive-selection text-interactive-selection-foreground',
+);
+
 const HistoryRow = ({ entry, selected, onSelect }: { entry: AtomicHistoryEntry; selected: boolean; onSelect: () => void }) => {
   const { locale, t } = useI18n();
   const timestamp = entry.timestamp ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(entry.timestamp)) : null;
   return (
-    <Button type="button" variant="ghost" onClick={onSelect} className={cn('h-auto w-full justify-start rounded-md p-2 text-left', selected && 'bg-interactive-selection text-interactive-selection-foreground')}>
+    <button type="button" onClick={onSelect} className={selectableRowClass(selected)}>
       <span className="min-w-0 flex-1">
         <span className="block truncate typography-ui-label">{entry.message}</span>
         <span className="mt-0.5 flex flex-wrap gap-x-2 typography-micro text-muted-foreground">
@@ -79,7 +110,7 @@ const HistoryRow = ({ entry, selected, onSelect }: { entry: AtomicHistoryEntry; 
           {timestamp ? <span>{timestamp}</span> : null}
         </span>
       </span>
-    </Button>
+    </button>
   );
 };
 
@@ -135,6 +166,7 @@ export const AtomicRepositoryView = ({ directory }: { directory: string }) => {
 
   const { currentView, views, workingCopy } = overviewQuery.data;
   const selectedChange = changeQuery.data;
+  const changeFiles = selectedChange ? summarizeHunksByFile(selectedChange.hunks) : [];
   const provenance = provenanceQuery.data;
   const selectedWorkingPath = selection?.kind === 'working' ? selection.path : null;
   const selectedHistoricalChange = selection?.kind === 'change' ? selection.hash : null;
@@ -176,18 +208,17 @@ export const AtomicRepositoryView = ({ directory }: { directory: string }) => {
             {workingCopy.clean ? (
               <div className="rounded-md border border-border p-3 typography-ui-label text-muted-foreground">{t('atomic.state.clean')}</div>
             ) : (
-              <div className="space-y-1">
+              <div className="-mx-3">
                 {workingCopy.entries.map((entry) => (
-                  <Button
+                  <button
                     key={`${entry.kind}:${entry.path}`}
                     type="button"
-                    variant="ghost"
                     onClick={() => selectWorkingPath(entry.path)}
-                    className={cn('h-auto w-full justify-start gap-2 rounded-md px-2 py-1.5 text-left', selectedWorkingPath === entry.path && 'bg-interactive-selection text-interactive-selection-foreground')}
+                    className={cn(selectableRowClass(selectedWorkingPath === entry.path), 'flex items-center gap-2')}
                   >
                     <span className="w-16 shrink-0 typography-micro text-muted-foreground">{statusLabel(entry.kind, t)}</span>
                     <span className="min-w-0 truncate typography-code">{entry.path}</span>
-                  </Button>
+                  </button>
                 ))}
               </div>
             )}
@@ -195,7 +226,7 @@ export const AtomicRepositoryView = ({ directory }: { directory: string }) => {
           <section>
             <h3 className="mb-2 typography-ui-label text-muted-foreground">{t('atomic.section.history')}</h3>
             {historyQuery.data?.changes.length ? (
-              <div className="space-y-1">{historyQuery.data.changes.map((entry) => (
+              <div className="-mx-3">{historyQuery.data.changes.map((entry) => (
                 <HistoryRow key={entry.hash} entry={entry} selected={selectedHistoricalChange === entry.hash} onSelect={() => selectChange(entry.hash)} />
               ))}</div>
             ) : historyQuery.loading ? (
@@ -220,7 +251,12 @@ export const AtomicRepositoryView = ({ directory }: { directory: string }) => {
                   {selectedChange.author ? <><dt className="text-muted-foreground">{t('atomic.change.author')}</dt><dd>{selectedChange.author}</dd></> : null}
                   {selectedChange.state ? <><dt className="text-muted-foreground">{t('atomic.change.state')}</dt><dd>{selectedChange.state}</dd></> : null}
                 </dl>
-                {selectedChange.hunks.length ? <ul className="mt-3 space-y-1">{selectedChange.hunks.map((hunk, index) => <li key={`${hunk.kind}:${hunk.path}:${index}`} className="typography-code text-muted-foreground">{hunk.kind} {hunk.path}</li>)}</ul> : null}
+                {changeFiles.length ? <ul className="mt-3 space-y-1">{changeFiles.map((file) => (
+                  <li key={file.path} className="flex items-baseline gap-2 typography-code text-muted-foreground">
+                    <span className="min-w-0 flex-1 truncate"><span className="text-foreground">{file.kinds.join(', ')}</span> {file.path}</span>
+                    {file.count > 1 ? <span className="shrink-0 typography-micro">{t('atomic.change.hunkCount', { count: file.count })}</span> : null}
+                  </li>
+                ))}</ul> : null}
               </section>
               {diffQuery.data?.diff ? <React.Suspense fallback={<RawPatch patch={diffQuery.data.diff} />}><PatchDiffViewer patch={diffQuery.data.diff} /></React.Suspense> : diffQuery.error ? <StatePanel icon="error-warning" title={t('atomic.state.initialError.title')} description={t('atomic.state.initialError.description')} error /> : <StatePanel icon="information" title={t('atomic.state.noDiff')} />}
               {provenance?.status === 'available' ? <AtomicProvenancePanel document={provenance.document} /> : provenanceQuery.loading ? <StatePanel icon="loader-4" title={t('atomic.state.loadingProvenance')} /> : provenanceQuery.error || provenance?.reason === 'error' ? <StatePanel icon="error-warning" title={t('atomic.state.initialError.title')} description={t('atomic.state.initialError.description')} error /> : <StatePanel icon="information" title={t('atomic.state.noProvenance')} />}

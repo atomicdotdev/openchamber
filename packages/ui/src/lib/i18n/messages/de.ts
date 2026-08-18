@@ -3028,6 +3028,7 @@ export const dict = {
   'atomic.status.untracked': 'Nicht verfolgt',
   'atomic.status.conflicted': 'Konflikt',
   'atomic.change.sequence': 'Reihenfolge {sequence}',
+  'atomic.change.hunkCount': '×{count}',
   'atomic.change.hash': 'Änderung',
   'atomic.change.author': 'Autor',
   'atomic.change.state': 'Status',
