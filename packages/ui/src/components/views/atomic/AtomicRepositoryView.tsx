@@ -442,9 +442,9 @@ export const AtomicRepositoryView = ({ directory }: { directory: string }) => {
                     <span className="min-w-0 flex-1 truncate"><span className="text-foreground">{file.kinds.join(', ')}</span> {file.path}</span>
                     {file.counts ? (
                       <span className="shrink-0 typography-micro">
-                        <span className="text-[var(--status-success-foreground)]">+{file.counts.added}</span>
+                        <span className="text-[var(--status-success)]">+{file.counts.added}</span>
                         <span className="mx-0.5 text-muted-foreground">/</span>
-                        <span className="text-[var(--status-error-foreground)]">-{file.counts.removed}</span>
+                        <span className="text-[var(--status-error)]">-{file.counts.removed}</span>
                       </span>
                     ) : null}
                   </li>
