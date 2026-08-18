@@ -1202,6 +1202,7 @@ export const dict: Record<I18nKey, string> = {
   'atomic.section.provenance': 'Походження',
   'atomic.views.pickerLabel': 'Вибрати подання',
   'atomic.views.none': 'Немає подань',
+  'atomic.view.current': 'Поточне',
   'atomic.view.changeCount': 'Зміни: {count}',
   'atomic.status.added': 'Додано',
   'atomic.status.modified': 'Змінено',

@@ -1021,6 +1021,7 @@ export const dict = {
   'atomic.section.provenance': 'Provenance',
   'atomic.views.pickerLabel': 'Sélectionner une vue',
   'atomic.views.none': 'Aucune vue',
+  'atomic.view.current': 'Actuelle',
   'atomic.view.changeCount': 'Modifications : {count}',
   'atomic.status.added': 'Ajouté',
   'atomic.status.modified': 'Modifié',

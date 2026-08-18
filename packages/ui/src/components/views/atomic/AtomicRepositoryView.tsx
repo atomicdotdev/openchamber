@@ -150,11 +150,12 @@ const ViewPicker = ({ views, selectedView, onSelectView }: {
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="truncate typography-ui-label text-foreground">{view.name}</span>
               <span className="flex flex-wrap gap-x-2 typography-micro text-muted-foreground">
+                {view.current ? <span className="text-primary">{t('atomic.view.current')}</span> : null}
                 {view.state ? <span>{view.state}</span> : null}
                 {view.changeCount !== null ? <span>{t('atomic.view.changeCount', { count: view.changeCount })}</span> : null}
               </span>
             </span>
-            {view.current ? <Icon name="check" className="ml-auto size-4 shrink-0 text-primary" /> : null}
+            {view.name === selectedView ? <Icon name="check" className="ml-auto size-4 shrink-0 text-primary" /> : null}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>
@@ -224,7 +225,12 @@ export const AtomicRepositoryView = ({ directory }: { directory: string }) => {
   }, [directory]);
 
   const selectView = (name: string) => {
+    const activeName = selectedViewName || (overviewQuery.data?.status === 'ready' ? overviewQuery.data.currentView.name : '');
+    if (name === activeName) return;
     setSelectedViewName(name);
+    // A picked view scopes the History section; the previously selected change
+    // or working path belongs to the old view, so reset the detail region.
+    setSelection(null);
     if (overviewQuery.data?.status === 'ready' && overviewQuery.data.currentView.name !== name) {
       actions.selectHistoryView(directory, name);
     }

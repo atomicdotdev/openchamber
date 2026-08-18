@@ -1202,6 +1202,7 @@ export const dict: Record<I18nKey, string> = {
   'atomic.section.provenance': '출처',
   'atomic.views.pickerLabel': '뷰 선택',
   'atomic.views.none': '뷰 없음',
+  'atomic.view.current': '현재',
   'atomic.view.changeCount': '변경: {count}',
   'atomic.status.added': '추가됨',
   'atomic.status.modified': '수정됨',

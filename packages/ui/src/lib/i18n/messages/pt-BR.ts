@@ -1202,6 +1202,7 @@ export const dict: Record<I18nKey, string> = {
   'atomic.section.provenance': 'Procedência',
   'atomic.views.pickerLabel': 'Selecionar uma visualização',
   'atomic.views.none': 'Nenhuma visualização',
+  'atomic.view.current': 'Atual',
   'atomic.view.changeCount': 'Alterações: {count}',
   'atomic.status.added': 'Adicionado',
   'atomic.status.modified': 'Modificado',

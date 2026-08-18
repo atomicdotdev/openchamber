@@ -1214,6 +1214,7 @@ export const dict: Record<I18nKey, string> = {
   'atomic.section.provenance': '來源',
   'atomic.views.pickerLabel': '選取檢視',
   'atomic.views.none': '沒有檢視',
+  'atomic.view.current': '目前',
   'atomic.view.changeCount': '變更：{count}',
   'atomic.status.added': '已新增',
   'atomic.status.modified': '已修改',

@@ -3020,6 +3020,7 @@ export const dict = {
   'atomic.section.provenance': 'Herkunft',
   'atomic.views.pickerLabel': 'Ansicht auswählen',
   'atomic.views.none': 'Keine Ansichten',
+  'atomic.view.current': 'Aktuell',
   'atomic.view.changeCount': 'Änderungen: {count}',
   'atomic.status.added': 'Hinzugefügt',
   'atomic.status.modified': 'Geändert',

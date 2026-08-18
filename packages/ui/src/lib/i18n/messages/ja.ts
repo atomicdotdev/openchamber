@@ -1198,6 +1198,7 @@ export const dict: Record<I18nKey, string> = {
   'atomic.section.provenance': '来歴',
   'atomic.views.pickerLabel': 'ビューを選択',
   'atomic.views.none': 'ビューなし',
+  'atomic.view.current': '現在',
   'atomic.view.changeCount': '変更: {count}',
   'atomic.status.added': '追加',
   'atomic.status.modified': '変更',
