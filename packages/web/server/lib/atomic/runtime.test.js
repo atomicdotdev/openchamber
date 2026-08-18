@@ -111,6 +111,70 @@ describe('Atomic runtime CLI boundary', () => {
       hunks: [{ kind: 'Edit', path: 'src/a.js' }],
       hasProvenance: true,
       sequence: 4,
+      attestation: null,
+    });
+  });
+
+  it('normalizes the change provenance object into an attestation', async () => {
+    const { execFile } = createExecFile([{ stdout: JSON.stringify({
+      hash: 'ABCD2345',
+      message: 'Change',
+      authors: [],
+      timestamp: '2026-08-18T12:00:00Z',
+      dependencies: [],
+      hunks: [{ hunk_type: 'Edit', path: 'src/a.js' }],
+      provenance: {
+        vendor: 'Other("openrouter")',
+        model: 'anthropic/claude-opus-4.8',
+        tool: 'Cli("opencode")',
+        suggestion_type: 'Complete',
+        tokens: { input: 12, output: 1429, total: 1441 },
+        cost: { amount_micros: 417296, currency: 'USD' },
+        session_id: 'ses_fe907d359ffe',
+        finish_reason: 'tool-calls',
+        step_count: 7,
+        metadata: [
+          { key: 'turn_number', value: '7' },
+          { key: 'agent_name', value: 'opencode' },
+          { key: 42, value: 'ignored-non-string-key' },
+        ],
+      },
+    }) }]);
+    const runtime = createAtomicRuntime({ execFile });
+
+    await expect(runtime.change('/repo', 'ABCD2345')).resolves.toMatchObject({
+      attestation: {
+        vendor: 'Other("openrouter")',
+        model: 'anthropic/claude-opus-4.8',
+        tool: 'Cli("opencode")',
+        suggestionType: 'Complete',
+        tokens: { input: 12, output: 1429, total: 1441 },
+        cost: { amountMicros: 417296, currency: 'USD' },
+        sessionId: 'ses_fe907d359ffe',
+        finishReason: 'tool-calls',
+        stepCount: 7,
+        metadata: [
+          { key: 'turn_number', value: '7' },
+          { key: 'agent_name', value: 'opencode' },
+        ],
+      },
+    });
+  });
+
+  it('degrades a malformed change provenance to a null attestation without failing', async () => {
+    const { execFile } = createExecFile([{ stdout: JSON.stringify({
+      hash: 'ABCD2345',
+      message: 'Change',
+      authors: [],
+      timestamp: '2026-08-18T12:00:00Z',
+      dependencies: [],
+      hunks: [{ hunk_type: 'Edit', path: 'src/a.js' }],
+      provenance: { tokens: 'not-an-object', cost: { amount_micros: 'nope' } },
+    }) }]);
+    const runtime = createAtomicRuntime({ execFile });
+
+    await expect(runtime.change('/repo', 'ABCD2345')).resolves.toMatchObject({
+      attestation: null,
     });
   });
 

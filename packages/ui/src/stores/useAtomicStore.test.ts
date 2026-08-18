@@ -58,6 +58,7 @@ const change = (hash: string): AtomicChangeDetail => ({
   ...history([hash]).changes[0],
   hunks: [],
   hasProvenance: false,
+  attestation: null,
 });
 
 const provenance: AtomicProvenanceResult = { status: 'available', document: {} };

@@ -881,9 +881,34 @@ export interface AtomicChangeHunk {
   path: string;
 }
 
+/** One key/value pair from a change attestation's metadata list. */
+export interface AtomicAttestationMetadata {
+  key: string;
+  value: string;
+}
+
+/**
+ * AI authorship attestation carried inline in a change's JSON. Every field is
+ * optional because a change may be human-authored (no attestation) or a given
+ * Atomic version may omit fields; consumers must treat any field as absent.
+ */
+export interface AtomicAttestation {
+  vendor: string | null;
+  model: string | null;
+  tool: string | null;
+  suggestionType: string | null;
+  tokens: { input: number | null; output: number | null; total: number | null } | null;
+  cost: { amountMicros: number; currency: string } | null;
+  sessionId: string | null;
+  finishReason: string | null;
+  stepCount: number | null;
+  metadata: AtomicAttestationMetadata[];
+}
+
 export interface AtomicChangeDetail extends AtomicHistoryEntry {
   hunks: AtomicChangeHunk[];
   hasProvenance: boolean | null;
+  attestation: AtomicAttestation | null;
 }
 
 export type AtomicJsonValue =
@@ -979,6 +1004,23 @@ export const AtomicHistoryResultSchema: z.ZodType<AtomicHistoryResult> = z.stric
   ]),
 });
 
+export const AtomicAttestationSchema: z.ZodType<AtomicAttestation> = z.strictObject({
+  vendor: z.string().nullable(),
+  model: z.string().nullable(),
+  tool: z.string().nullable(),
+  suggestionType: z.string().nullable(),
+  tokens: z.strictObject({
+    input: z.number().nullable(),
+    output: z.number().nullable(),
+    total: z.number().nullable(),
+  }).nullable(),
+  cost: z.strictObject({ amountMicros: z.number(), currency: z.string() }).nullable(),
+  sessionId: z.string().nullable(),
+  finishReason: z.string().nullable(),
+  stepCount: z.number().int().nullable(),
+  metadata: z.array(z.strictObject({ key: z.string(), value: z.string() })),
+});
+
 export const AtomicChangeDetailSchema: z.ZodType<AtomicChangeDetail> = z.strictObject({
   hash: z.string(),
   sequence: z.number().int().nullable(),
@@ -989,6 +1031,7 @@ export const AtomicChangeDetailSchema: z.ZodType<AtomicChangeDetail> = z.strictO
   tagged: z.boolean().nullable(),
   hunks: z.array(z.strictObject({ kind: z.string(), path: z.string() })),
   hasProvenance: z.boolean().nullable(),
+  attestation: AtomicAttestationSchema.nullable(),
 });
 
 export const AtomicProvenanceResultSchema: z.ZodType<AtomicProvenanceResult> = z.discriminatedUnion('status', [

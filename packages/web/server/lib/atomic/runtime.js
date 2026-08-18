@@ -122,6 +122,54 @@ const authorName = (authors) => {
   return isString(first.email) ? first.email : null;
 };
 
+const isFiniteNumber = (value) => value?.constructor === Number && Number.isFinite(value);
+const optionalString = (value) => (isString(value) ? value : null);
+const optionalNumber = (value) => (isFiniteNumber(value) ? value : null);
+
+// The change JSON's `provenance` object is the inline AI attestation (vendor,
+// model, tokens, cost, session, metadata). It is best-effort telemetry, so it
+// is normalized field-by-field and any malformed/missing part degrades to null
+// rather than failing the whole change read.
+const normalizeAttestation = (value) => {
+  if (!isRecord(value)) return null;
+
+  const tokens = isRecord(value.tokens)
+    ? {
+      input: optionalNumber(value.tokens.input),
+      output: optionalNumber(value.tokens.output),
+      total: optionalNumber(value.tokens.total),
+    }
+    : null;
+
+  const cost = isRecord(value.cost) && isFiniteNumber(value.cost.amount_micros) && isString(value.cost.currency)
+    ? { amountMicros: value.cost.amount_micros, currency: value.cost.currency }
+    : null;
+
+  const metadata = Array.isArray(value.metadata)
+    ? value.metadata
+      .filter((entry) => isRecord(entry) && isString(entry.key) && isString(entry.value))
+      .map((entry) => ({ key: entry.key, value: entry.value }))
+    : [];
+
+  const attestation = {
+    vendor: optionalString(value.vendor),
+    model: optionalString(value.model),
+    tool: optionalString(value.tool),
+    suggestionType: optionalString(value.suggestion_type),
+    tokens,
+    cost,
+    sessionId: optionalString(value.session_id),
+    finishReason: optionalString(value.finish_reason),
+    stepCount: Number.isInteger(value.step_count) ? value.step_count : null,
+    metadata,
+  };
+
+  // Nothing recognizable → treat as no attestation so the UI shows no panel.
+  const hasSignal = attestation.vendor || attestation.model || attestation.tool
+    || attestation.sessionId || attestation.tokens || attestation.cost || attestation.metadata.length > 0;
+  return hasSignal ? attestation : null;
+};
+
 const parseChange = (text) => {
   const value = parseJson(text, 'change');
   if (
@@ -152,6 +200,7 @@ const parseChange = (text) => {
     tagged: null,
     hunks: value.hunks.map((hunk) => ({ kind: hunk.hunk_type, path: hunk.path })),
     hasProvenance: value.has_provenance ?? null,
+    attestation: normalizeAttestation(value.provenance),
   };
 };
 

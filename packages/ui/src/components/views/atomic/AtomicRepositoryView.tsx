@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { dropdownTriggerVariants } from '@/components/ui/dropdown-trigger';
 import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
-import type { AtomicDiffRequest, AtomicHistoryEntry, AtomicStatusEntry, AtomicUnavailableReason, AtomicView } from '@/lib/api/types';
+import type { AtomicAttestation, AtomicDiffRequest, AtomicHistoryEntry, AtomicStatusEntry, AtomicUnavailableReason, AtomicView } from '@/lib/api/types';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import {
@@ -22,6 +22,7 @@ import {
   useAtomicRepositoryActions,
 } from '@/stores/useAtomicStore';
 import { AtomicProvenancePanel } from './AtomicProvenancePanel';
+import { parseAtomicChangeLineCounts, type AtomicFileLineCounts } from './atomicChangeFiles';
 
 const PatchDiffViewer = lazyWithChunkRecovery(() => import('@/components/diff/PatchDiffViewer').then((module) => ({
   default: module.PatchDiffViewer,
@@ -71,20 +72,23 @@ const STATUS_INDICATORS = {
 
 // Atomic returns one hunk per edited region, so a single-file change can carry
 // many same-file hunks. Group them by path (first-appearance order) into one
-// summary row per file with a hunk count. A file whose hunks carry different
-// kinds keeps all distinct kinds so the summary never hides that the file was
-// e.g. both renamed and edited.
-type ChangeFileSummary = { path: string; kinds: string[]; count: number };
+// summary row per file. A file whose hunks carry different kinds keeps all
+// distinct kinds so the summary never hides that the file was e.g. both renamed
+// and edited. Added/removed line counts are joined from the change's own diff
+// (parsed separately); a file with no resolvable diff section shows no counts.
+type ChangeFileSummary = { path: string; kinds: string[]; counts: AtomicFileLineCounts | null };
 
-const summarizeChangeFiles = (hunks: readonly { kind: string; path: string }[]): ChangeFileSummary[] => {
+const summarizeChangeFiles = (
+  hunks: readonly { kind: string; path: string }[],
+  lineCounts: ReadonlyMap<string, AtomicFileLineCounts>,
+): ChangeFileSummary[] => {
   const byPath = new Map<string, ChangeFileSummary>();
   for (const hunk of hunks) {
     const existing = byPath.get(hunk.path);
     if (existing) {
-      existing.count += 1;
       if (!existing.kinds.includes(hunk.kind)) existing.kinds.push(hunk.kind);
     } else {
-      byPath.set(hunk.path, { path: hunk.path, kinds: [hunk.kind], count: 1 });
+      byPath.set(hunk.path, { path: hunk.path, kinds: [hunk.kind], counts: lineCounts.get(hunk.path) ?? null });
     }
   }
   return [...byPath.values()];
@@ -193,6 +197,74 @@ const HistoryRow = ({ entry, selected, onSelect }: { entry: AtomicHistoryEntry; 
   );
 };
 
+// Format a micro-dollar cost as a currency string, e.g. 417296 micros USD →
+// "$0.417296". amountMicros is millionths of the currency unit.
+const formatAttestationCost = (cost: NonNullable<AtomicAttestation['cost']>, locale: string): string => {
+  const amount = cost.amountMicros / 1_000_000;
+  try {
+    return new Intl.NumberFormat(locale, { style: 'currency', currency: cost.currency, maximumFractionDigits: 6 }).format(amount);
+  } catch {
+    // Unknown/invalid currency code: fall back to a plain number + code.
+    return `${amount} ${cost.currency}`;
+  }
+};
+
+// Readable AI attestation panel: the vendor/model/tool/tokens/cost/session and
+// metadata the change carries inline. Rendered only when a change has an
+// attestation (the parent gates on it), so it never shows an empty shell.
+const AtomicAttestationPanel = ({ attestation }: { attestation: AtomicAttestation }) => {
+  const { locale, t } = useI18n();
+  const tokens = attestation.tokens;
+  const rows: Array<{ label: string; value: string }> = [];
+  if (attestation.vendor) rows.push({ label: t('atomic.attestation.vendor'), value: attestation.vendor });
+  if (attestation.model) rows.push({ label: t('atomic.attestation.model'), value: attestation.model });
+  if (attestation.tool) rows.push({ label: t('atomic.attestation.tool'), value: attestation.tool });
+  if (attestation.suggestionType) rows.push({ label: t('atomic.attestation.type'), value: attestation.suggestionType });
+  if (tokens && (tokens.input !== null || tokens.output !== null || tokens.total !== null)) {
+    rows.push({
+      label: t('atomic.attestation.tokens'),
+      value: t('atomic.attestation.tokensValue', {
+        input: tokens.input ?? 0,
+        output: tokens.output ?? 0,
+        total: tokens.total ?? 0,
+      }),
+    });
+  }
+  if (attestation.cost) rows.push({ label: t('atomic.attestation.cost'), value: formatAttestationCost(attestation.cost, locale) });
+  if (attestation.sessionId) rows.push({ label: t('atomic.attestation.session'), value: attestation.sessionId });
+  if (attestation.finishReason) rows.push({ label: t('atomic.attestation.finishReason'), value: attestation.finishReason });
+  if (attestation.stepCount !== null) rows.push({ label: t('atomic.attestation.steps'), value: String(attestation.stepCount) });
+
+  return (
+    <section aria-labelledby="atomic-attestation-title" className="rounded-lg border border-border bg-[var(--surface-elevated)] p-3">
+      <h3 id="atomic-attestation-title" className="mb-3 typography-ui-header text-foreground">
+        {t('atomic.section.attestation')}
+      </h3>
+      <dl className="grid grid-cols-[minmax(5rem,auto)_minmax(0,1fr)] gap-x-3 gap-y-1">
+        {rows.map((row) => (
+          <React.Fragment key={row.label}>
+            <dt className="typography-ui-label text-muted-foreground">{row.label}</dt>
+            <dd className="min-w-0 break-words typography-code text-foreground">{row.value}</dd>
+          </React.Fragment>
+        ))}
+      </dl>
+      {attestation.metadata.length ? (
+        <>
+          <h4 className="mb-1 mt-3 typography-ui-label text-muted-foreground">{t('atomic.attestation.metadata')}</h4>
+          <dl className="grid grid-cols-[minmax(5rem,auto)_minmax(0,1fr)] gap-x-3 gap-y-1">
+            {attestation.metadata.map((entry) => (
+              <React.Fragment key={entry.key}>
+                <dt className="truncate typography-code text-muted-foreground" title={entry.key}>{entry.key}</dt>
+                <dd className="min-w-0 break-words typography-code text-foreground">{entry.value}</dd>
+              </React.Fragment>
+            ))}
+          </dl>
+        </>
+      ) : null}
+    </section>
+  );
+};
+
 export const AtomicRepositoryView = ({ directory }: { directory: string }) => {
   const { t } = useI18n();
   const [selection, setSelection] = React.useState<
@@ -264,7 +336,12 @@ export const AtomicRepositoryView = ({ directory }: { directory: string }) => {
 
   const { currentView, views, workingCopy } = overviewQuery.data;
   const selectedChange = changeQuery.data;
-  const changeFiles = selectedChange ? summarizeChangeFiles(selectedChange.hunks) : [];
+  // Per-file line counts come from the selected change's own unified diff; until
+  // that diff loads a file simply shows no counts (never a fabricated one).
+  const changeLineCounts = selection?.kind === 'change' && diffQuery.data?.diff
+    ? parseAtomicChangeLineCounts(diffQuery.data.diff)
+    : new Map<string, AtomicFileLineCounts>();
+  const changeFiles = selectedChange ? summarizeChangeFiles(selectedChange.hunks, changeLineCounts) : [];
   const provenance = provenanceQuery.data;
   const selectedWorkingPath = selection?.kind === 'working' ? selection.path : null;
   const selectedHistoricalChange = selection?.kind === 'change' ? selection.hash : null;
@@ -363,10 +440,17 @@ export const AtomicRepositoryView = ({ directory }: { directory: string }) => {
                 {changeFiles.length ? <ul className="mt-3 space-y-1">{changeFiles.map((file) => (
                   <li key={file.path} className="flex items-baseline gap-2 typography-code text-muted-foreground">
                     <span className="min-w-0 flex-1 truncate"><span className="text-foreground">{file.kinds.join(', ')}</span> {file.path}</span>
-                    {file.count > 1 ? <span className="shrink-0 typography-micro">{t('atomic.change.hunkCount', { count: file.count })}</span> : null}
+                    {file.counts ? (
+                      <span className="shrink-0 typography-micro">
+                        <span className="text-[var(--status-success-foreground)]">+{file.counts.added}</span>
+                        <span className="mx-0.5 text-muted-foreground">/</span>
+                        <span className="text-[var(--status-error-foreground)]">-{file.counts.removed}</span>
+                      </span>
+                    ) : null}
                   </li>
                 ))}</ul> : null}
               </div>
+              {selectedChange.attestation ? <AtomicAttestationPanel attestation={selectedChange.attestation} /> : null}
               {diffQuery.data?.diff ? <React.Suspense fallback={<RawPatch patch={diffQuery.data.diff} />}><PatchDiffViewer patch={diffQuery.data.diff} /></React.Suspense> : diffQuery.error ? <StatePanel icon="error-warning" title={t('atomic.state.initialError.title')} description={t('atomic.state.initialError.description')} error /> : <StatePanel icon="information" title={t('atomic.state.noDiff')} />}
               {provenance?.status === 'available' ? <AtomicProvenancePanel document={provenance.document} /> : provenanceQuery.loading ? <StatePanel icon="loader-4" title={t('atomic.state.loadingProvenance')} /> : provenanceQuery.error || provenance?.reason === 'error' ? <StatePanel icon="error-warning" title={t('atomic.state.initialError.title')} description={t('atomic.state.initialError.description')} error /> : <StatePanel icon="information" title={t('atomic.state.noProvenance')} />}
             </div>
