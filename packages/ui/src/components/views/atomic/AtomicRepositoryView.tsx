@@ -58,6 +58,12 @@ const unavailableKeys = {
 
 const statusLabel = (kind: AtomicStatusEntry['kind'], t: ReturnType<typeof useI18n>['t']) => t(`atomic.status.${kind}`);
 
+// Display-only truncation of an Atomic change hash. The full 52-char hash is
+// kept everywhere it is used functionally (selection, diff/change/provenance
+// requests, React keys); only rendered text is shortened to the first 12 chars.
+const HASH_DISPLAY_LENGTH = 12;
+const shortHash = (hash: string): string => hash.slice(0, HASH_DISPLAY_LENGTH);
+
 // Single-letter status indicator + its color, mirroring the Git tab's ChangeRow
 // so a working-copy entry reads the same in either rail. Each kind keeps a
 // distinct semantic status token rather than a shared muted color.
@@ -188,7 +194,7 @@ const HistoryRow = ({ entry, selected, onSelect }: { entry: AtomicHistoryEntry; 
       <span className="min-w-0 flex-1">
         <span className="block truncate typography-ui-label">{entry.message}</span>
         <span className="mt-0.5 flex flex-wrap gap-x-2 typography-micro text-muted-foreground">
-          <span className="font-mono">{entry.hash}</span>
+          <span className="font-mono">{shortHash(entry.hash)}</span>
           {entry.sequence !== null ? <span>{t('atomic.change.sequence', { sequence: entry.sequence })}</span> : null}
           {timestamp ? <span>{timestamp}</span> : null}
         </span>
@@ -433,7 +439,7 @@ export const AtomicRepositoryView = ({ directory }: { directory: string }) => {
               <div className="rounded-lg border border-border bg-[var(--surface-elevated)] p-3">
                 <h3 className="typography-ui-header text-foreground">{selectedChange.message}</h3>
                 <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 typography-ui-label">
-                  <dt className="text-muted-foreground">{t('atomic.change.hash')}</dt><dd className="font-mono">{selectedChange.hash}</dd>
+                  <dt className="text-muted-foreground">{t('atomic.change.hash')}</dt><dd className="font-mono">{shortHash(selectedChange.hash)}</dd>
                   {selectedChange.author ? <><dt className="text-muted-foreground">{t('atomic.change.author')}</dt><dd>{selectedChange.author}</dd></> : null}
                   {selectedChange.state ? <><dt className="text-muted-foreground">{t('atomic.change.state')}</dt><dd>{selectedChange.state}</dd></> : null}
                 </dl>
