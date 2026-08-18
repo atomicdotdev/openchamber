@@ -1,5 +1,10 @@
-import type { WorktreeMetadata } from '@/types/worktree';
-import type { DraftStarterRef } from '@/lib/draftStarters';
+import type { WorktreeMetadata } from '../../types/worktree';
+import { z } from 'zod';
+
+type DraftStarterRef = {
+  type: 'command' | 'skill';
+  name: string;
+};
 
 type RuntimePlatform = 'web' | 'desktop' | 'vscode';
 
@@ -809,6 +814,197 @@ export interface PushAPI {
   unregisterApnsToken(payload: ApnsTokenPayload): Promise<{ ok: true } | null>;
 }
 
+export type AtomicUnavailableReason = 'not-installed' | 'not-repository' | 'unsupported' | 'error';
+
+export interface AtomicView {
+  name: string;
+  current: boolean;
+  scope: 'shared' | 'draft' | 'unknown';
+  changeCount: number | null;
+  state: string | null;
+}
+
+export interface AtomicStatusEntry {
+  path: string;
+  kind: 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked' | 'conflicted';
+  previousPath?: string;
+}
+
+export interface AtomicWorkingCopyStatus {
+  clean: boolean;
+  entries: AtomicStatusEntry[];
+}
+
+export type AtomicOverview =
+  | {
+      status: 'ready';
+      currentView: AtomicView;
+      views: AtomicView[];
+      workingCopy: AtomicWorkingCopyStatus;
+    }
+  | {
+      status: 'unavailable';
+      reason: AtomicUnavailableReason;
+      message: string;
+    };
+
+export type AtomicDiffRequest =
+  | { target: 'working'; paths?: string[] }
+  | { target: 'change'; change: string };
+
+export interface AtomicDiffResult {
+  diff: string;
+}
+
+export interface AtomicHistoryEntry {
+  hash: string;
+  sequence: number | null;
+  state: string | null;
+  message: string;
+  timestamp: string | null;
+  author: string | null;
+  tagged: boolean | null;
+}
+
+export type AtomicHistoryMetadata =
+  | { completeness: 'complete' }
+  | { completeness: 'partial'; missing: Array<'author' | 'timestamp' | 'tagged'> };
+
+export interface AtomicHistoryResult {
+  changes: AtomicHistoryEntry[];
+  metadata: AtomicHistoryMetadata;
+}
+
+export interface AtomicChangeHunk {
+  kind: string;
+  path: string;
+}
+
+export interface AtomicChangeDetail extends AtomicHistoryEntry {
+  hunks: AtomicChangeHunk[];
+  hasProvenance: boolean | null;
+}
+
+export type AtomicJsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | AtomicJsonValue[]
+  | { [key: string]: AtomicJsonValue };
+
+export type AtomicProvenanceResult =
+  | { status: 'available'; document: AtomicJsonValue }
+  | { status: 'unavailable'; reason: AtomicUnavailableReason; message: string };
+
+export interface AtomicHistoryOptions {
+  limit?: number;
+  view?: string;
+}
+
+/** Read-only access to the active directory's Atomic repository. */
+export interface AtomicAPI {
+  overview(directory: string): Promise<AtomicOverview>;
+  diff(directory: string, request: AtomicDiffRequest): Promise<AtomicDiffResult>;
+  history(directory: string, options?: AtomicHistoryOptions): Promise<AtomicHistoryResult>;
+  change(directory: string, change: string): Promise<AtomicChangeDetail>;
+  provenance(directory: string, change: string): Promise<AtomicProvenanceResult>;
+}
+
+const atomicUnavailableReasonSchema = z.enum(['not-installed', 'not-repository', 'unsupported', 'error']);
+const atomicChangeIdSchema = z.string().trim().regex(/^[A-Z2-7]{4,52}$/i);
+const atomicViewNameSchema = z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/);
+const atomicPathSchema = z.string().trim().min(1).max(1024).refine((path) => (
+  !path.includes('\0')
+  && !path.startsWith('/')
+  && !path.startsWith('\\')
+  && !/^[A-Za-z]:[\\/]/.test(path)
+  && !path.split(/[\\/]+/).includes('..')
+));
+
+export const AtomicViewSchema: z.ZodType<AtomicView> = z.strictObject({
+  name: z.string(),
+  current: z.boolean(),
+  scope: z.enum(['shared', 'draft', 'unknown']),
+  changeCount: z.number().int().nullable(),
+  state: z.string().nullable(),
+});
+
+export const AtomicStatusEntrySchema: z.ZodType<AtomicStatusEntry> = z.strictObject({
+  path: z.string(),
+  kind: z.enum(['added', 'modified', 'deleted', 'renamed', 'untracked', 'conflicted']),
+  previousPath: z.string().optional(),
+});
+
+export const AtomicOverviewSchema: z.ZodType<AtomicOverview> = z.discriminatedUnion('status', [
+  z.strictObject({
+    status: z.literal('ready'),
+    currentView: AtomicViewSchema,
+    views: z.array(AtomicViewSchema),
+    workingCopy: z.strictObject({ clean: z.boolean(), entries: z.array(AtomicStatusEntrySchema) }),
+  }),
+  z.strictObject({
+    status: z.literal('unavailable'),
+    reason: atomicUnavailableReasonSchema,
+    message: z.string(),
+  }),
+]);
+
+export const AtomicDiffRequestSchema: z.ZodType<AtomicDiffRequest> = z.discriminatedUnion('target', [
+  z.strictObject({ target: z.literal('working'), paths: z.array(atomicPathSchema).max(100).optional() }),
+  z.strictObject({ target: z.literal('change'), change: atomicChangeIdSchema }),
+]);
+
+export const AtomicDiffResultSchema: z.ZodType<AtomicDiffResult> = z.strictObject({ diff: z.string() });
+
+export const AtomicHistoryEntrySchema: z.ZodType<AtomicHistoryEntry> = z.strictObject({
+  hash: z.string(),
+  sequence: z.number().int().nullable(),
+  state: z.string().nullable(),
+  message: z.string(),
+  timestamp: z.string().nullable(),
+  author: z.string().nullable(),
+  tagged: z.boolean().nullable(),
+});
+
+export const AtomicHistoryResultSchema: z.ZodType<AtomicHistoryResult> = z.strictObject({
+  changes: z.array(AtomicHistoryEntrySchema),
+  metadata: z.discriminatedUnion('completeness', [
+    z.strictObject({ completeness: z.literal('complete') }),
+    z.strictObject({
+      completeness: z.literal('partial'),
+      missing: z.array(z.enum(['author', 'timestamp', 'tagged'])),
+    }),
+  ]),
+});
+
+export const AtomicChangeDetailSchema: z.ZodType<AtomicChangeDetail> = z.strictObject({
+  hash: z.string(),
+  sequence: z.number().int().nullable(),
+  state: z.string().nullable(),
+  message: z.string(),
+  timestamp: z.string().nullable(),
+  author: z.string().nullable(),
+  tagged: z.boolean().nullable(),
+  hunks: z.array(z.strictObject({ kind: z.string(), path: z.string() })),
+  hasProvenance: z.boolean().nullable(),
+});
+
+export const AtomicProvenanceResultSchema: z.ZodType<AtomicProvenanceResult> = z.discriminatedUnion('status', [
+  z.strictObject({ status: z.literal('available'), document: z.json() }),
+  z.strictObject({ status: z.literal('unavailable'), reason: atomicUnavailableReasonSchema, message: z.string() }),
+]);
+
+export const AtomicHistoryOptionsSchema: z.ZodType<AtomicHistoryOptions> = z.strictObject({
+  limit: z.number().int().optional(),
+  view: atomicViewNameSchema.optional(),
+});
+
+export const AtomicDirectoryRequestSchema = z.strictObject({ directory: z.string().trim().min(1) });
+export const AtomicDiffBridgeRequestSchema = AtomicDirectoryRequestSchema.extend({ request: AtomicDiffRequestSchema });
+export const AtomicHistoryBridgeRequestSchema = AtomicDirectoryRequestSchema.extend({ options: AtomicHistoryOptionsSchema.optional() });
+export const AtomicChangeBridgeRequestSchema = AtomicDirectoryRequestSchema.extend({ change: atomicChangeIdSchema });
+
 export type GitHubUserSummary = {
   login: string;
   id?: number;
@@ -1232,6 +1428,7 @@ export interface RuntimeAPIs {
   notifications: NotificationsAPI;
   github?: GitHubAPI;
   push?: PushAPI;
+  atomic: AtomicAPI;
   diagnostics?: DiagnosticsAPI;
   clientAuth?: ClientAuthAPI;
   tools: ToolsAPI;

@@ -29,6 +29,8 @@ const createRuntime = async (overrides = {}) => {
     getActivePort: () => 3901,
     executeAction,
     env,
+    // Hermetic by default: never read the developer's real ~/.config/opencode.
+    readFilePlugins: () => [],
     ...overrides,
   });
   return { runtime, dataDir, executeAction, env };
@@ -112,6 +114,81 @@ describe('managed agent tool runtime', () => {
     expect(source).not.toContain('title: "OpenChamber"');
     expect(source).not.toContain('@opencode-ai/plugin');
     expect(source).not.toContain(preparedEnv.OPENCHAMBER_AGENT_TOOL_TOKEN);
+  });
+
+  it('carries user-config file plugins into the inline config so on-disk hooks still load', async () => {
+    const { runtime, dataDir } = await createRuntime({
+      readFilePlugins: () => ['/Users/dev/.config/opencode/plugins/atomic-hooks.ts', ['file-scoped', { a: 1 }]],
+    });
+
+    const config = JSON.parse((await runtime.prepareManagedOpenCodeEnv()).OPENCODE_CONFIG_CONTENT);
+    const managed = path.join(dataDir, 'agent-tool', 'openchamber-plugin.js');
+
+    expect(config.plugin).toEqual([
+      '/Users/dev/.config/opencode/plugins/atomic-hooks.ts',
+      ['file-scoped', { a: 1 }],
+      expect.stringContaining('/agent-tool/openchamber-plugin.js'),
+    ]);
+    expect(config.plugin.at(-1)).toBe(pathToFileURL(managed).href);
+  });
+
+  it('places file plugins before inline plugins and dedupes across both, managed last exactly once', async () => {
+    const { runtime, env } = await createRuntime({
+      readFilePlugins: () => ['file:///shared.ts', 'file:///only-file.ts'],
+    });
+    env.OPENCODE_CONFIG_CONTENT = '{"plugin":["file:///shared.ts","file:///only-inline.ts"]}';
+
+    const config = JSON.parse((await runtime.prepareManagedOpenCodeEnv()).OPENCODE_CONFIG_CONTENT);
+
+    // file-declared first, inline next, the shared entry not duplicated.
+    expect(config.plugin.slice(0, 3)).toEqual([
+      'file:///only-file.ts',
+      'file:///shared.ts',
+      'file:///only-inline.ts',
+    ]);
+    expect(config.plugin.filter((value) => value === config.plugin.at(-1))).toHaveLength(1);
+    expect(config.plugin.at(-1)).toContain('/agent-tool/openchamber-plugin.js');
+  });
+
+  it('still injects the managed plugin when there is no base config and no file plugins', async () => {
+    const { runtime } = await createRuntime({ readFilePlugins: () => [] });
+
+    const config = JSON.parse((await runtime.prepareManagedOpenCodeEnv()).OPENCODE_CONFIG_CONTENT);
+
+    expect(config.plugin).toHaveLength(1);
+    expect(config.plugin[0]).toContain('/agent-tool/openchamber-plugin.js');
+  });
+
+  it('rejects a malformed inline base config even when file plugins are present', async () => {
+    const { runtime, env } = await createRuntime({ readFilePlugins: () => ['file:///x.ts'] });
+    env.OPENCODE_CONFIG_CONTENT = '{"plugin": "not-an-array"}';
+
+    await expect(runtime.prepareManagedOpenCodeEnv()).rejects.toThrow(/plugin must be an array/);
+  });
+
+  it('resolves a relative user-config plugin spec to an absolute path from disk', async () => {
+    const configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'openchamber-oc-config-'));
+    temporaryDirectories.push(configDir);
+    await fs.writeFile(
+      path.join(configDir, 'opencode.json'),
+      JSON.stringify({ plugin: ['./plugins/atomic-hooks.ts', 'some-npm-plugin'] }),
+    );
+
+    const previous = process.env.OPENCODE_CONFIG;
+    process.env.OPENCODE_CONFIG = path.join(configDir, 'opencode.json');
+    try {
+      // Uses the real default reader (no readFilePlugins override) against the
+      // temp OPENCODE_CONFIG, proving on-disk resolution end to end.
+      const { runtime } = await createRuntime({ readFilePlugins: undefined });
+      const config = JSON.parse((await runtime.prepareManagedOpenCodeEnv()).OPENCODE_CONFIG_CONTENT);
+
+      expect(config.plugin[0]).toBe(path.join(configDir, 'plugins', 'atomic-hooks.ts'));
+      expect(config.plugin).toContain('some-npm-plugin');
+      expect(config.plugin.at(-1)).toContain('/agent-tool/openchamber-plugin.js');
+    } finally {
+      if (previous === undefined) delete process.env.OPENCODE_CONFIG;
+      else process.env.OPENCODE_CONFIG = previous;
+    }
   });
 
   it('emits both tools, each carrying only its own actions and inputs', async () => {

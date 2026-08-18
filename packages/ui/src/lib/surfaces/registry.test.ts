@@ -59,6 +59,13 @@ describe('getVisibleContextRailSurfaces', () => {
     expect(getVisibleContextRailSurfaces(baseOptions).some((s) => s.id === 'browser')).toBe(true);
   });
 
+  test('offers the read-only Atomic repository surface without existing content', () => {
+    const atomic = CONTEXT_SURFACES.find((surface) => surface.id === 'atomic');
+    expect(atomic?.mode).toBe('atomic');
+    expect(atomic?.availability).toBe('always');
+    expect(getVisibleContextRailSurfaces(baseOptions).some((surface) => surface.id === 'atomic')).toBe(true);
+  });
+
   test('respects the persisted user rail order', () => {
     const surfaces = getVisibleContextRailSurfaces({ ...baseOptions, railOrder: ['git', 'context'] });
     expect(surfaces.slice(0, 2).map((surface) => surface.id)).toEqual(['git', 'context']);

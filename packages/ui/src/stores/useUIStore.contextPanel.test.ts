@@ -41,6 +41,16 @@ describe('useUIStore openContextSurface', () => {
     expect(state?.tabs.map((tab) => tab.mode)).toEqual(['diff']);
   });
 
+  test('opens the Atomic repository as a singleton surface', () => {
+    useUIStore.getState().openContextSurface(directory, 'atomic');
+    useUIStore.getState().openContextSurface(directory, 'git');
+    useUIStore.getState().openContextSurface(directory, 'atomic');
+
+    const state = useUIStore.getState().contextPanelByDirectory[directory];
+    expect(state?.tabs.filter((tab) => tab.mode === 'atomic')).toHaveLength(1);
+    expect(state?.activeTabId).toBe('atomic');
+  });
+
   test('activates the existing tab of the requested mode instead of duplicating it', () => {
     useUIStore.getState().openContextPanelTab(directory, { mode: 'diff' });
     useUIStore.getState().openContextPanelTab(directory, { mode: 'file', targetPath: '/repo/a.ts' });
