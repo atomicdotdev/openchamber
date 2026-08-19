@@ -59,6 +59,7 @@ const change = (hash: string): AtomicChangeDetail => ({
   hunks: [],
   hasProvenance: false,
   attestation: null,
+  ledger: [],
 });
 
 const provenance: AtomicProvenanceResult = { status: 'available', document: {} };
@@ -69,7 +70,6 @@ const api = (overrides: Partial<AtomicAPI> = {}): AtomicAPI => ({
   change: async (_directory, hash) => change(hash),
   diff: async () => ({ diff: '' }),
   provenance: async () => provenance,
-  provenanceTrace: async () => provenance,
   ...overrides,
 });
 

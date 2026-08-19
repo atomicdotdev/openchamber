@@ -170,6 +170,53 @@ const normalizeAttestation = (value) => {
   return hasSignal ? attestation : null;
 };
 
+// The change JSON's `ledger` is the decision-graph projection (one entry per
+// attested turn that explains this change): ordered goal/exploration/execution/
+// commitment/… nodes plus edges. It is best-effort telemetry, so it is
+// normalized entry-by-entry; a malformed entry, node, or edge is skipped rather
+// than failing the change read, and an absent ledger becomes an empty array.
+const normalizeLedgerNode = (value) => {
+  if (!isRecord(value) || !isString(value.id) || !isString(value.kind) || !isString(value.summary)) {
+    return null;
+  }
+  return {
+    id: value.id,
+    kind: value.kind,
+    timestamp: optionalNumber(value.timestamp),
+    summary: value.summary,
+    classified: isBoolean(value.classified) ? value.classified : false,
+  };
+};
+
+const normalizeLedgerEdge = (value) => {
+  if (!isRecord(value) || !isString(value.from) || !isString(value.to) || !isString(value.kind)) {
+    return null;
+  }
+  return { from: value.from, to: value.to, kind: value.kind };
+};
+
+const normalizeLedgerEntry = (value) => {
+  if (!isRecord(value) || !isString(value.graph_hash)) {
+    return null;
+  }
+  return {
+    graphHash: value.graph_hash,
+    sessionId: optionalString(value.session_id),
+    agentDisplayName: optionalString(value.agent_display_name),
+    agentVendor: optionalString(value.agent_vendor),
+    timestamp: optionalNumber(value.timestamp),
+    nodeCount: Number.isInteger(value.node_count) ? value.node_count : null,
+    edgeCount: Number.isInteger(value.edge_count) ? value.edge_count : null,
+    changeCount: Number.isInteger(value.change_count) ? value.change_count : null,
+    changesExplained: Array.isArray(value.changes_explained) ? value.changes_explained.filter(isString) : [],
+    previous: optionalString(value.previous),
+    nodes: Array.isArray(value.nodes) ? value.nodes.map(normalizeLedgerNode).filter(Boolean) : [],
+    edges: Array.isArray(value.edges) ? value.edges.map(normalizeLedgerEdge).filter(Boolean) : [],
+  };
+};
+
+const normalizeLedger = (value) => (Array.isArray(value) ? value.map(normalizeLedgerEntry).filter(Boolean) : []);
+
 const parseChange = (text) => {
   const value = parseJson(text, 'change');
   if (
@@ -201,6 +248,7 @@ const parseChange = (text) => {
     hunks: value.hunks.map((hunk) => ({ kind: hunk.hunk_type, path: hunk.path })),
     hasProvenance: value.has_provenance ?? null,
     attestation: normalizeAttestation(value.provenance),
+    ledger: normalizeLedger(value.ledger),
   };
 };
 
@@ -306,13 +354,6 @@ export const createAtomicRuntime = (dependencies = {}) => {
       return {
         status: 'available',
         document: parseProvenance(await execute(directory, ['provenance', 'show', hash, '--no-color'])),
-      };
-    },
-
-    async provenanceTrace(directory, hash) {
-      return {
-        status: 'available',
-        document: parseProvenance(await execute(directory, ['provenance', 'trace', hash, '--json', '--no-color'])),
       };
     },
   };

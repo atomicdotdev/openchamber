@@ -909,6 +909,44 @@ export interface AtomicChangeDetail extends AtomicHistoryEntry {
   hunks: AtomicChangeHunk[];
   hasProvenance: boolean | null;
   attestation: AtomicAttestation | null;
+  ledger: AtomicChangeLedgerEntry[];
+}
+
+/** One node of a change's decision ledger (the reasoning graph of a turn). */
+export interface AtomicLedgerNode {
+  id: string;
+  kind: string;
+  timestamp: number | null;
+  summary: string;
+  classified: boolean;
+}
+
+/** One directed edge between decision-ledger nodes. */
+export interface AtomicLedgerEdge {
+  from: string;
+  to: string;
+  kind: string;
+}
+
+/**
+ * One decision-graph entry that explains a change: the ordered `goal /
+ * exploration / execution / commitment / …` reasoning of an attested turn,
+ * projected from `atomic change`'s `ledger`. A change may carry several (one per
+ * contributing turn) or none.
+ */
+export interface AtomicChangeLedgerEntry {
+  graphHash: string;
+  sessionId: string | null;
+  agentDisplayName: string | null;
+  agentVendor: string | null;
+  timestamp: number | null;
+  nodeCount: number | null;
+  edgeCount: number | null;
+  changeCount: number | null;
+  changesExplained: string[];
+  previous: string | null;
+  nodes: AtomicLedgerNode[];
+  edges: AtomicLedgerEdge[];
 }
 
 export type AtomicJsonValue =
@@ -935,8 +973,6 @@ export interface AtomicAPI {
   history(directory: string, options?: AtomicHistoryOptions): Promise<AtomicHistoryResult>;
   change(directory: string, change: string): Promise<AtomicChangeDetail>;
   provenance(directory: string, change: string): Promise<AtomicProvenanceResult>;
-  /** The full provenance chain for a change (walks turn-parent links). */
-  provenanceTrace(directory: string, change: string): Promise<AtomicProvenanceResult>;
 }
 
 const atomicUnavailableReasonSchema = z.enum(['not-installed', 'not-repository', 'unsupported', 'error']);
@@ -1023,6 +1059,27 @@ export const AtomicAttestationSchema: z.ZodType<AtomicAttestation> = z.strictObj
   metadata: z.array(z.strictObject({ key: z.string(), value: z.string() })),
 });
 
+export const AtomicChangeLedgerEntrySchema: z.ZodType<AtomicChangeLedgerEntry> = z.strictObject({
+  graphHash: z.string(),
+  sessionId: z.string().nullable(),
+  agentDisplayName: z.string().nullable(),
+  agentVendor: z.string().nullable(),
+  timestamp: z.number().nullable(),
+  nodeCount: z.number().int().nullable(),
+  edgeCount: z.number().int().nullable(),
+  changeCount: z.number().int().nullable(),
+  changesExplained: z.array(z.string()),
+  previous: z.string().nullable(),
+  nodes: z.array(z.strictObject({
+    id: z.string(),
+    kind: z.string(),
+    timestamp: z.number().nullable(),
+    summary: z.string(),
+    classified: z.boolean(),
+  })),
+  edges: z.array(z.strictObject({ from: z.string(), to: z.string(), kind: z.string() })),
+});
+
 export const AtomicChangeDetailSchema: z.ZodType<AtomicChangeDetail> = z.strictObject({
   hash: z.string(),
   sequence: z.number().int().nullable(),
@@ -1034,6 +1091,7 @@ export const AtomicChangeDetailSchema: z.ZodType<AtomicChangeDetail> = z.strictO
   hunks: z.array(z.strictObject({ kind: z.string(), path: z.string() })),
   hasProvenance: z.boolean().nullable(),
   attestation: AtomicAttestationSchema.nullable(),
+  ledger: z.array(AtomicChangeLedgerEntrySchema),
 });
 
 export const AtomicProvenanceResultSchema: z.ZodType<AtomicProvenanceResult> = z.discriminatedUnion('status', [

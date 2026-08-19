@@ -10,10 +10,9 @@ const createRuntime = () => ({
   history: async () => history,
   change: async (_directory, change) => ({
     hash: change, sequence: null, state: null, message: '', timestamp: null, author: null, tagged: null,
-    hunks: [], hasProvenance: null, attestation: null,
+    hunks: [], hasProvenance: null, attestation: null, ledger: [],
   }),
   provenance: async () => ({ status: 'unavailable' as const, reason: 'unsupported' as const, message: 'Unavailable' }),
-  provenanceTrace: async () => ({ status: 'unavailable' as const, reason: 'unsupported' as const, message: 'Unavailable' }),
 }) satisfies AtomicRuntime;
 
 describe('VS Code Atomic runtime bridge', () => {
@@ -28,10 +27,9 @@ describe('VS Code Atomic runtime bridge', () => {
       history: async () => history,
       change: async (_directory: string, change: string) => ({
         hash: change, sequence: null, state: null, message: '', timestamp: null, author: null, tagged: null,
-        hunks: [], hasProvenance: null, attestation: null,
+        hunks: [], hasProvenance: null, attestation: null, ledger: [],
       }),
       provenance: async () => ({ status: 'unavailable' as const, reason: 'unsupported' as const, message: 'Unavailable' }),
-      provenanceTrace: async () => ({ status: 'unavailable' as const, reason: 'unsupported' as const, message: 'Unavailable' }),
     };
     const runtime = createVSCodeAtomicRuntime(server);
 

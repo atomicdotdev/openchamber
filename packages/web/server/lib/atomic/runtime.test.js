@@ -178,21 +178,81 @@ describe('Atomic runtime CLI boundary', () => {
     });
   });
 
+  it('normalizes the change decision ledger, skipping malformed entries and nodes', async () => {
+    const { execFile } = createExecFile([{ stdout: JSON.stringify({
+      hash: 'ABCD2345',
+      message: 'Change',
+      authors: [],
+      timestamp: '2026-08-18T12:00:00Z',
+      dependencies: [],
+      hunks: [{ hunk_type: 'Edit', path: 'src/a.js' }],
+      ledger: [
+        {
+          graph_hash: 'GRAPH1',
+          session_id: 'ses_1',
+          agent_display_name: 'OpenCode',
+          agent_vendor: 'openrouter',
+          timestamp: 1787000000,
+          node_count: 2,
+          edge_count: 1,
+          change_count: 1,
+          changes_explained: ['ABCD2345', 42],
+          previous: 'GRAPH0',
+          nodes: [
+            { id: 'n1', kind: 'goal', timestamp: 1, summary: 'do the thing', classified: false },
+            { id: 'n2', kind: 'execution', timestamp: 2, summary: 'ran it', classified: true },
+            { id: 'bad', kind: 'goal' },
+          ],
+          edges: [
+            { from: 'n1', to: 'n2', kind: 'led_to' },
+            { from: 'n1', kind: 'broken' },
+          ],
+        },
+        { session_id: 'no-graph-hash' },
+      ],
+    }) }]);
+    const runtime = createAtomicRuntime({ execFile });
+
+    const result = await runtime.change('/repo', 'ABCD2345');
+    expect(result.ledger).toHaveLength(1);
+    expect(result.ledger[0]).toMatchObject({
+      graphHash: 'GRAPH1',
+      sessionId: 'ses_1',
+      agentDisplayName: 'OpenCode',
+      agentVendor: 'openrouter',
+      nodeCount: 2,
+      edgeCount: 1,
+      changeCount: 1,
+      changesExplained: ['ABCD2345'],
+      previous: 'GRAPH0',
+    });
+    expect(result.ledger[0].nodes).toEqual([
+      { id: 'n1', kind: 'goal', timestamp: 1, summary: 'do the thing', classified: false },
+      { id: 'n2', kind: 'execution', timestamp: 2, summary: 'ran it', classified: true },
+    ]);
+    expect(result.ledger[0].edges).toEqual([{ from: 'n1', to: 'n2', kind: 'led_to' }]);
+  });
+
+  it('defaults a change with no ledger to an empty array', async () => {
+    const { execFile } = createExecFile([{ stdout: JSON.stringify({
+      hash: 'ABCD2345',
+      message: 'Change',
+      authors: [],
+      timestamp: '2026-08-18T12:00:00Z',
+      dependencies: [],
+      hunks: [{ hunk_type: 'Edit', path: 'src/a.js' }],
+    }) }]);
+    const runtime = createAtomicRuntime({ execFile });
+
+    await expect(runtime.change('/repo', 'ABCD2345')).resolves.toMatchObject({ ledger: [] });
+  });
+
   it('validates provenance as JSON-LD', async () => {
     const graph = { '@context': 'https://www.w3.org/ns/prov.jsonld', '@graph': [] };
     const { execFile } = createExecFile([{ stdout: JSON.stringify(graph) }]);
     const runtime = createAtomicRuntime({ execFile });
 
     await expect(runtime.provenance('/repo', 'ABCD2345')).resolves.toEqual({ status: 'available', document: graph });
-  });
-
-  it('traces the provenance chain as JSON-LD via provenance trace --json', async () => {
-    const graph = { '@context': 'https://atomic.dev/ns/ctx.jsonld', '@graph': [{ '@id': 'urn:atomic:change:ABCD2345', '@type': 'prov:Entity' }] };
-    const { execFile, calls } = createExecFile([{ stdout: JSON.stringify(graph) }]);
-    const runtime = createAtomicRuntime({ execFile });
-
-    await expect(runtime.provenanceTrace('/repo', 'ABCD2345')).resolves.toEqual({ status: 'available', document: graph });
-    expect(calls[0].args).toEqual(['provenance', 'trace', 'ABCD2345', '--json', '--no-color']);
   });
 
   it('serializes commands for one repository to avoid Atomic database locks', async () => {

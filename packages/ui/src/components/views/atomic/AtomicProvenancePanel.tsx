@@ -157,9 +157,3 @@ export const AtomicProvenancePanel = ({ document, directory }: { document: Atomi
     </section>
   );
 };
-
-// Bare document renderer without the section chrome, for the dedicated
-// provenance-chain panel which supplies its own header.
-export const AtomicProvenanceDocument = ({ document, directory }: { document: AtomicJsonValue; directory: string }) => (
-  <ProvenanceDocument document={document} directory={directory} />
-);

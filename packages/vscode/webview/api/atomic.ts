@@ -56,7 +56,4 @@ export const createVSCodeAtomicAPI = (bridge: AtomicBridge = sendAtomicBridgeMes
   provenance(directory, change) {
     return bridgeResult(bridge, 'api:atomic:provenance', { directory, change }, 'provenance', AtomicProvenanceResultSchema);
   },
-  provenanceTrace(directory, change) {
-    return bridgeResult(bridge, 'api:atomic:provenance:trace', { directory, change }, 'provenance trace', AtomicProvenanceResultSchema);
-  },
 });

@@ -20,7 +20,6 @@ export interface AtomicRuntime {
   history(directory: string, options?: AtomicHistoryOptions): Promise<AtomicHistoryResult>;
   change(directory: string, change: string): Promise<AtomicChangeDetail>;
   provenance(directory: string, change: string): Promise<AtomicProvenanceResult>;
-  provenanceTrace(directory: string, change: string): Promise<AtomicProvenanceResult>;
 }
 
 type BridgeMessage = { id: string; type: string; payload?: unknown };
@@ -31,7 +30,6 @@ interface ServerAtomicRuntime {
   history(directory: string, options: { count: number; view: string | null }): Promise<AtomicHistoryResult>;
   change(directory: string, change: string): Promise<AtomicChangeDetail>;
   provenance(directory: string, change: string): Promise<AtomicProvenanceResult>;
-  provenanceTrace(directory: string, change: string): Promise<AtomicProvenanceResult>;
 }
 
 const unavailableReason = (code: string) => {
@@ -66,7 +64,6 @@ export const createVSCodeAtomicRuntime = (server: ServerAtomicRuntime = createAt
     }),
     change: (directory, change) => server.change(directory, change),
     provenance: (directory, change) => capabilityRead(() => server.provenance(directory, change)),
-    provenanceTrace: (directory, change) => capabilityRead(() => server.provenanceTrace(directory, change)),
   };
 };
 
@@ -107,12 +104,6 @@ export async function handleAtomicBridgeMessage(message: BridgeMessage, runtime?
         const parsed = AtomicChangeBridgeRequestSchema.safeParse(message.payload);
         if (!parsed.success) throw new Error('A valid directory and change are required for Atomic provenance');
         data = await runtime.provenance(parsed.data.directory, parsed.data.change);
-        break;
-      }
-      case 'api:atomic:provenance:trace': {
-        const parsed = AtomicChangeBridgeRequestSchema.safeParse(message.payload);
-        if (!parsed.success) throw new Error('A valid directory and change are required for Atomic provenance trace');
-        data = await runtime.provenanceTrace(parsed.data.directory, parsed.data.change);
         break;
       }
       default:
