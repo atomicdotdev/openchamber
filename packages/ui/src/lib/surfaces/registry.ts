@@ -6,6 +6,7 @@ export type ContextSurfaceId =
   | 'editor'
   | 'git'
   | 'atomic'
+  | 'provenance'
   | 'pr'
   | 'diff'
   | 'walkthrough'
@@ -65,6 +66,17 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
     icon: 'git-repository',
     labelKey: 'atomic.title',
     availability: 'always',
+  },
+  {
+    id: 'provenance',
+    descriptionKey: 'contextRail.surface.provenance.description',
+    defaultWidthFraction: 3 / 5,
+    mode: 'provenance',
+    icon: 'node-tree',
+    labelKey: 'atomic.provenanceChain.title',
+    // Content-driven: only appears once a provenance chain has been opened from
+    // an @id, mirroring how chat/diff surfaces stay hidden until they have a tab.
+    availability: 'has-content',
   },
   {
     id: 'pr',

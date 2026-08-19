@@ -186,6 +186,15 @@ describe('Atomic runtime CLI boundary', () => {
     await expect(runtime.provenance('/repo', 'ABCD2345')).resolves.toEqual({ status: 'available', document: graph });
   });
 
+  it('traces the provenance chain as JSON-LD via provenance trace --json', async () => {
+    const graph = { '@context': 'https://atomic.dev/ns/ctx.jsonld', '@graph': [{ '@id': 'urn:atomic:change:ABCD2345', '@type': 'prov:Entity' }] };
+    const { execFile, calls } = createExecFile([{ stdout: JSON.stringify(graph) }]);
+    const runtime = createAtomicRuntime({ execFile });
+
+    await expect(runtime.provenanceTrace('/repo', 'ABCD2345')).resolves.toEqual({ status: 'available', document: graph });
+    expect(calls[0].args).toEqual(['provenance', 'trace', 'ABCD2345', '--json', '--no-color']);
+  });
+
   it('serializes commands for one repository to avoid Atomic database locks', async () => {
     let active = 0;
     let maximumActive = 0;

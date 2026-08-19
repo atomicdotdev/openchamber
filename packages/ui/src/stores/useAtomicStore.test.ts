@@ -69,6 +69,7 @@ const api = (overrides: Partial<AtomicAPI> = {}): AtomicAPI => ({
   change: async (_directory, hash) => change(hash),
   diff: async () => ({ diff: '' }),
   provenance: async () => provenance,
+  provenanceTrace: async () => provenance,
   ...overrides,
 });
 

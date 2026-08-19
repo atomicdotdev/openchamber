@@ -935,6 +935,8 @@ export interface AtomicAPI {
   history(directory: string, options?: AtomicHistoryOptions): Promise<AtomicHistoryResult>;
   change(directory: string, change: string): Promise<AtomicChangeDetail>;
   provenance(directory: string, change: string): Promise<AtomicProvenanceResult>;
+  /** The full provenance chain for a change (walks turn-parent links). */
+  provenanceTrace(directory: string, change: string): Promise<AtomicProvenanceResult>;
 }
 
 const atomicUnavailableReasonSchema = z.enum(['not-installed', 'not-repository', 'unsupported', 'error']);

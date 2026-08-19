@@ -308,5 +308,12 @@ export const createAtomicRuntime = (dependencies = {}) => {
         document: parseProvenance(await execute(directory, ['provenance', 'show', hash, '--no-color'])),
       };
     },
+
+    async provenanceTrace(directory, hash) {
+      return {
+        status: 'available',
+        document: parseProvenance(await execute(directory, ['provenance', 'trace', hash, '--json', '--no-color'])),
+      };
+    },
   };
 };

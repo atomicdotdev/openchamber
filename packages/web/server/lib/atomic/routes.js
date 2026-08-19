@@ -129,4 +129,16 @@ export const registerAtomicRoutes = (app, dependencies) => {
       return unavailableResponse(res, error);
     }
   });
+
+  app.get('/api/atomic/provenance/trace', async (req, res) => {
+    try {
+      const { directory, error } = await resolveProjectDirectory(req);
+      if (!directory) return res.status(400).json({ error });
+      const change = singleQuery(req.query.change);
+      if (!change || !HASH_PATTERN.test(change)) throw new Error('change parameter is invalid');
+      return res.json(await atomicRuntime.provenanceTrace(directory, change));
+    } catch (error) {
+      return unavailableResponse(res, error);
+    }
+  });
 };

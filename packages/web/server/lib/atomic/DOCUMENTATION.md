@@ -11,6 +11,7 @@ This module exposes bounded, read-only Atomic repository inspection to the web s
 - `GET /api/atomic/history`: summary history. Optional `view` and `limit` query parameters.
 - `GET /api/atomic/change?change=<hash>`: one change in validated JSON form, including any AI attestation (vendor, model, tool, suggestion type, token usage, cost, session id, and metadata) normalized from the change's inline `provenance` object.
 - `GET /api/atomic/provenance?change=<hash>`: the change's validated W3C PROV JSON-LD graph.
+- `GET /api/atomic/provenance/trace?change=<hash>`: the change's validated W3C PROV JSON-LD graph walked across the turn-parent chain (`atomic provenance trace --json`).
 
 Every route resolves its repository from the standard project `directory` query handling. Paths must be repository-relative, view names and hashes use allowlisted character sets, `limit` is clamped to 1-100, and diff `context` is clamped to 0-20.
 

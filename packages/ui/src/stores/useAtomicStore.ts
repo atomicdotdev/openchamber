@@ -28,6 +28,7 @@ export interface AtomicDirectoryState {
   changes: ReadonlyMap<string, AtomicQueryState<AtomicChangeDetail>>;
   diffs: ReadonlyMap<string, AtomicQueryState<AtomicDiffResult>>;
   provenance: ReadonlyMap<string, AtomicQueryState<AtomicProvenanceResult>>;
+  provenanceTraces: ReadonlyMap<string, AtomicQueryState<AtomicProvenanceResult>>;
   diffCacheBytes: number;
 }
 
@@ -40,10 +41,11 @@ interface AtomicStore {
   loadChange: (directory: string, change: string, atomic: AtomicAPI) => Promise<AtomicChangeDetail>;
   loadDiff: (directory: string, request: AtomicDiffRequest, atomic: AtomicAPI) => Promise<AtomicDiffResult>;
   loadProvenance: (directory: string, change: string, atomic: AtomicAPI) => Promise<AtomicProvenanceResult>;
+  loadProvenanceTrace: (directory: string, change: string, atomic: AtomicAPI) => Promise<AtomicProvenanceResult>;
   resetForRuntimeSwitch: (runtimeKey: string) => void;
 }
 
-type AtomicChannel = 'overview' | 'history' | 'change' | 'diff' | 'provenance';
+type AtomicChannel = 'overview' | 'history' | 'change' | 'diff' | 'provenance' | 'provenance-trace';
 type RequestToken = {
   runtimeKey: string;
   runtimeGeneration: number;
@@ -77,6 +79,7 @@ const createDirectoryState = (): AtomicDirectoryState => ({
   changes: new Map(),
   diffs: new Map(),
   provenance: new Map(),
+  provenanceTraces: new Map(),
   diffCacheBytes: 0,
 });
 
@@ -308,6 +311,14 @@ export const useAtomicStore = create<AtomicStore>()(
         read: (state) => state.provenance,
         write: (state, provenance) => ({ ...state, provenance }),
       }),
+      loadProvenanceTrace: (directory, change, atomic) => runKeyedRequest({
+        directory,
+        channel: 'provenance-trace',
+        requestKey: change,
+        request: () => atomic.provenanceTrace(normalizeDirectory(directory), change),
+        read: (state) => state.provenanceTraces,
+        write: (state, provenanceTraces) => ({ ...state, provenanceTraces }),
+      }),
       resetForRuntimeSwitch: (runtimeKey) => {
         runtimeGeneration += 1;
         activeRuntimeKey = runtimeKey;
@@ -344,6 +355,9 @@ export const useAtomicDiff = (
 
 export const useAtomicProvenance = (directory: string, change: string): AtomicQueryState<AtomicProvenanceResult> =>
   useAtomicStore((state) => state.directories.get(normalizeDirectory(directory))?.provenance.get(change) ?? emptyQuery());
+
+export const useAtomicProvenanceTrace = (directory: string, change: string): AtomicQueryState<AtomicProvenanceResult> =>
+  useAtomicStore((state) => state.directories.get(normalizeDirectory(directory))?.provenanceTraces.get(change) ?? emptyQuery());
 
 const requireAtomicAPI = (): AtomicAPI => {
   const atomic = getRegisteredRuntimeAPIs()?.atomic;
@@ -385,6 +399,12 @@ const atomicRepositoryActions = {
   selectHistoryView(directory: string, view: string): void {
     const atomic = requireAtomicAPI();
     void useAtomicStore.getState().loadHistory(directory, atomic, { view }).catch(() => undefined);
+  },
+  // Load the full provenance chain (walked across turn-parent links) for a
+  // change, for the dedicated provenance-chain context surface.
+  loadProvenanceTrace(directory: string, change: string): void {
+    const atomic = requireAtomicAPI();
+    void useAtomicStore.getState().loadProvenanceTrace(directory, change, atomic).catch(() => undefined);
   },
 };
 

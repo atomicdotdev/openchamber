@@ -12,6 +12,7 @@ const createApp = (runtimeOverrides = {}, directoryResult = { directory: '/repo'
     history: vi.fn(async () => ({ changes: [], metadata: { completeness: 'complete' } })),
     change: vi.fn(async () => ({ hash: 'ABCD2345' })),
     provenance: vi.fn(async () => ({ status: 'available', document: { '@context': 'x', '@graph': [] } })),
+    provenanceTrace: vi.fn(async () => ({ status: 'available', document: { '@context': 'x', '@graph': [] } })),
     ...runtimeOverrides,
   };
   const resolveProjectDirectory = vi.fn(async () => directoryResult);
@@ -63,9 +64,20 @@ describe('Atomic read-only routes', () => {
 
     await request(app).get('/api/atomic/change?change=ABCD2345').expect(200);
     await request(app).get('/api/atomic/provenance?change=ABCD2345').expect(200);
+    await request(app).get('/api/atomic/provenance/trace?change=ABCD2345').expect(200);
 
     expect(atomicRuntime.change).toHaveBeenCalledWith('/repo', 'ABCD2345');
     expect(atomicRuntime.provenance).toHaveBeenCalledWith('/repo', 'ABCD2345');
+    expect(atomicRuntime.provenanceTrace).toHaveBeenCalledWith('/repo', 'ABCD2345');
+  });
+
+  it('rejects an invalid hash for the provenance trace before executing Atomic', async () => {
+    const { app, atomicRuntime } = createApp();
+
+    const response = await request(app).get('/api/atomic/provenance/trace?change=not-a-hash').expect(400);
+
+    expect(response.body.error).toContain('change parameter');
+    expect(atomicRuntime.provenanceTrace).not.toHaveBeenCalled();
   });
 
   it.each([

@@ -53,4 +53,7 @@ export const createWebAtomicAPI = (fetchRuntime: AtomicFetch = runtimeFetch): At
   provenance(directory, change) {
     return getJson(fetchRuntime, '/api/atomic/provenance', new URLSearchParams({ directory, change }), 'provenance', AtomicProvenanceResultSchema);
   },
+  provenanceTrace(directory, change) {
+    return getJson(fetchRuntime, '/api/atomic/provenance/trace', new URLSearchParams({ directory, change }), 'provenance trace', AtomicProvenanceResultSchema);
+  },
 });

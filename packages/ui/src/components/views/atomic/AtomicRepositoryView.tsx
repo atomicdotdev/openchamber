@@ -457,7 +457,7 @@ export const AtomicRepositoryView = ({ directory }: { directory: string }) => {
                 ))}</ul> : null}
               </div>
               {selectedChange.attestation ? <AtomicAttestationPanel attestation={selectedChange.attestation} /> : null}
-              {provenance?.status === 'available' ? <AtomicProvenancePanel document={provenance.document} /> : provenanceQuery.loading ? <StatePanel icon="loader-4" title={t('atomic.state.loadingProvenance')} /> : provenanceQuery.error || provenance?.reason === 'error' ? <StatePanel icon="error-warning" title={t('atomic.state.initialError.title')} description={t('atomic.state.initialError.description')} error /> : <StatePanel icon="information" title={t('atomic.state.noProvenance')} />}
+              {provenance?.status === 'available' ? <AtomicProvenancePanel document={provenance.document} directory={directory} /> : provenanceQuery.loading ? <StatePanel icon="loader-4" title={t('atomic.state.loadingProvenance')} /> : provenanceQuery.error || provenance?.reason === 'error' ? <StatePanel icon="error-warning" title={t('atomic.state.initialError.title')} description={t('atomic.state.initialError.description')} error /> : <StatePanel icon="information" title={t('atomic.state.noProvenance')} />}
             </div>
           ) : selectedWorkingPath ? (
             diffQuery.data?.diff ? <React.Suspense fallback={<RawPatch patch={diffQuery.data.diff} />}><PatchDiffViewer patch={diffQuery.data.diff} /></React.Suspense> : diffQuery.error ? <StatePanel icon="error-warning" title={t('atomic.state.initialError.title')} description={t('atomic.state.initialError.description')} error /> : <StatePanel icon="information" title={t('atomic.state.noDiff')} />
