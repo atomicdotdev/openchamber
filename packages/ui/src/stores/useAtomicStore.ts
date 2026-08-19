@@ -379,6 +379,20 @@ const atomicRepositoryActions = {
       }
     }).catch(() => undefined);
   },
+  // Load the change log for a specific view without touching the repository's
+  // current view. Histories are cached per { limit, view }, so inspecting a
+  // non-current view never clobbers the current view's cached log.
+  selectHistoryView(directory: string, view: string): void {
+    const atomic = requireAtomicAPI();
+    void useAtomicStore.getState().loadHistory(directory, atomic, { view }).catch(() => undefined);
+  },
+  // Load just the change detail (which now carries the decision ledger) for the
+  // dedicated provenance-chain context surface, without the diff/provenance
+  // side effects of selectChange.
+  loadChange(directory: string, change: string): void {
+    const atomic = requireAtomicAPI();
+    void useAtomicStore.getState().loadChange(directory, change, atomic).catch(() => undefined);
+  },
 };
 
 export const useAtomicRepositoryActions = () => atomicRepositoryActions;
