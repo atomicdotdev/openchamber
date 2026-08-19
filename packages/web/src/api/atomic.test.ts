@@ -51,4 +51,36 @@ describe('web Atomic API', () => {
 
     await expect(createWebAtomicAPI(runtimeFetchMock).overview('/workspace')).rejects.toThrow('Invalid Atomic overview response');
   });
+
+  it('fetches the vault by directory only and parses intents with derived memories', async () => {
+    const { createWebAtomicAPI } = await import('./atomic');
+    const api = createWebAtomicAPI(runtimeFetchMock);
+    runtimeFetchMock.mockResolvedValueOnce(Response.json({
+      status: 'available',
+      intents: [{
+        id: 'PROJ::me::1', urn: 'urn:atomic:intent:01INT', title: 'An intent', status: 'done', kind: 'feature',
+        why: 'Because', acceptanceCriteria: [], tasks: [], scopeIn: [], scopeOut: [], constraints: [], attested: 'fresh',
+      }],
+      memories: [{
+        id: '01MEM', urn: 'urn:atomic:memory:01MEM', kind: 'decision', status: 'active', text: 'A memory',
+        derivedFrom: ['urn:atomic:intent:01INT'], attested: 'none',
+      }],
+    }));
+
+    await expect(api.vault('/workspace')).resolves.toMatchObject({
+      status: 'available',
+      intents: [{ id: 'PROJ::me::1', why: 'Because' }],
+      memories: [{ id: '01MEM', derivedFrom: ['urn:atomic:intent:01INT'] }],
+    });
+    expect(runtimeFetchMock).toHaveBeenCalledWith('/api/atomic/vault', expect.objectContaining({
+      method: 'GET', query: new URLSearchParams({ directory: '/workspace' }),
+    }));
+  });
+
+  it('rejects a malformed vault payload', async () => {
+    const { createWebAtomicAPI } = await import('./atomic');
+    runtimeFetchMock.mockResolvedValueOnce(Response.json({ status: 'available', intents: [{}], memories: [] }));
+
+    await expect(createWebAtomicAPI(runtimeFetchMock).vault('/workspace')).rejects.toThrow('Invalid Atomic vault response');
+  });
 });

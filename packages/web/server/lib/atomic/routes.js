@@ -129,4 +129,14 @@ export const registerAtomicRoutes = (app, dependencies) => {
       return unavailableResponse(res, error);
     }
   });
+
+  app.get('/api/atomic/vault', async (req, res) => {
+    try {
+      const { directory, error } = await resolveProjectDirectory(req);
+      if (!directory) return res.status(400).json({ error });
+      return res.json(await atomicRuntime.vault(directory));
+    } catch (error) {
+      return unavailableResponse(res, error);
+    }
+  });
 };

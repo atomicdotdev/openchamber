@@ -265,6 +265,94 @@ const parseProvenance = (text) => {
   return value;
 };
 
+// A vault id used to address an intent/memory on the CLI: the human key
+// (`PROJ::author::1`) or a ULID (`01m0…`). Kept deliberately narrow so a value
+// read from list JSON can be passed straight back to `show` as an argument.
+const VAULT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$/;
+const isVaultId = (value) => isString(value) && VAULT_ID_PATTERN.test(value);
+
+// The list JSON of intents/memories: an array of summary rows. The only fields
+// the vault view needs from a list row are the addressable `id` and the
+// `attested` status (the detail read supplies everything else). Rows without a
+// usable id are dropped rather than failing the whole vault read.
+const parseVaultListIds = (text, kind) => {
+  const value = parseJson(text, kind);
+  if (!Array.isArray(value)) throw incompatibleOutput(kind);
+  const rows = [];
+  for (const entry of value) {
+    if (!isRecord(entry) || !isVaultId(entry.id)) continue;
+    rows.push({ id: entry.id, attested: isString(entry.attested) ? entry.attested : null });
+  }
+  return rows;
+};
+
+// Pull the trailing text of a canonical `@id` array of leaf nodes ({@id,text}).
+const leafTexts = (value) => (Array.isArray(value)
+  ? value.filter((leaf) => isRecord(leaf) && isString(leaf.text)).map((leaf) => leaf.text)
+  : []);
+
+const parseIntentDetail = (text, attested) => {
+  const value = parseJson(text, 'intent');
+  if (!isRecord(value) || !isString(value['@id']) || !isString(value.status)) {
+    throw incompatibleOutput('intent');
+  }
+
+  const acceptanceCriteria = Array.isArray(value.hasAcceptanceCriterion)
+    ? value.hasAcceptanceCriterion
+      .filter((ac) => isRecord(ac) && isString(ac['@id']) && isString(ac.text))
+      .map((ac) => ({
+        id: ac['@id'],
+        text: ac.text,
+        status: isString(ac.acStatus) ? ac.acStatus : 'unknown',
+        verifiedBy: optionalString(ac.verifiedBy),
+        evidence: optionalString(ac.evidence),
+      }))
+    : [];
+
+  const tasks = Array.isArray(value.hasTask)
+    ? value.hasTask
+      .filter((task) => isRecord(task) && isString(task['@id']) && isString(task.text))
+      .map((task) => ({
+        id: task['@id'],
+        text: task.text,
+        status: isString(task.taskStatus) ? task.taskStatus : 'unknown',
+        satisfies: Array.isArray(task.satisfies) ? task.satisfies.filter(isString) : [],
+        touchesFile: Array.isArray(task.touchesFile) ? task.touchesFile.filter(isString) : [],
+      }))
+    : [];
+
+  return {
+    id: isString(value.humanKey) ? value.humanKey : value['@id'],
+    urn: value['@id'],
+    title: optionalString(value.title),
+    status: value.status,
+    kind: optionalString(value.intentKind ?? value.kind),
+    why: optionalString(value.why),
+    acceptanceCriteria,
+    tasks,
+    scopeIn: leafTexts(value.hasScopeIn),
+    scopeOut: leafTexts(value.hasScopeOut),
+    constraints: leafTexts(value.hasConstraint),
+    attested,
+  };
+};
+
+const parseMemoryDetail = (text, id, attested) => {
+  const value = parseJson(text, 'memory');
+  if (!isRecord(value) || !isString(value['@id']) || !isString(value.text)) {
+    throw incompatibleOutput('memory');
+  }
+  return {
+    id,
+    urn: value['@id'],
+    kind: optionalString(value.memoryKind),
+    status: isString(value.status) ? value.status : 'unknown',
+    text: value.text,
+    derivedFrom: Array.isArray(value.derivedFrom) ? value.derivedFrom.filter(isString) : [],
+    attested,
+  };
+};
+
 const errorText = (error) => [error?.message, error?.stderr, error?.stdout]
   .filter(isString)
   .join('\n');
@@ -355,6 +443,42 @@ export const createAtomicRuntime = (dependencies = {}) => {
         status: 'available',
         document: parseProvenance(await execute(directory, ['provenance', 'show', hash, '--no-color'])),
       };
+    },
+
+    // Read-only projection of the directory's vault: every intent (with its
+    // why/criteria/tasks/scope) and every memory (with its derivedFrom links).
+    // The list read supplies each row's addressable id and attestation status;
+    // a per-id detail read supplies the rest. Detail reads run inside the same
+    // serialized per-repository queue, so the vault never holds two concurrent
+    // CLI opens against one database.
+    async vault(directory) {
+      const intentRows = parseVaultListIds(
+        await execute(directory, ['intent', 'list', '--json', '--no-color']),
+        'intent list',
+      );
+      const memoryRows = parseVaultListIds(
+        await execute(directory, ['memory', 'list', '--json', '--no-color']),
+        'memory list',
+      );
+
+      const intents = [];
+      for (const row of intentRows) {
+        intents.push(parseIntentDetail(
+          await execute(directory, ['intent', 'show', row.id, '--json', '--no-color']),
+          row.attested,
+        ));
+      }
+
+      const memories = [];
+      for (const row of memoryRows) {
+        memories.push(parseMemoryDetail(
+          await execute(directory, ['memory', 'show', row.id, '--json', '--no-color']),
+          row.id,
+          row.attested,
+        ));
+      }
+
+      return { status: 'available', intents, memories };
     },
   };
 };

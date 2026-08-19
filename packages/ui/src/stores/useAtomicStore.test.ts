@@ -6,6 +6,7 @@ import type {
   AtomicHistoryResult,
   AtomicOverview,
   AtomicProvenanceResult,
+  AtomicVaultResult,
 } from '@/lib/api/types';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import {
@@ -64,12 +65,15 @@ const change = (hash: string): AtomicChangeDetail => ({
 
 const provenance: AtomicProvenanceResult = { status: 'available', document: {} };
 
+const vault: AtomicVaultResult = { status: 'available', intents: [], memories: [] };
+
 const api = (overrides: Partial<AtomicAPI> = {}): AtomicAPI => ({
   overview: async () => overview(),
   history: async () => history([]),
   change: async (_directory, hash) => change(hash),
   diff: async () => ({ diff: '' }),
   provenance: async () => provenance,
+  vault: async () => vault,
   ...overrides,
 });
 

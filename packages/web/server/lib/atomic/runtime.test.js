@@ -296,4 +296,93 @@ describe('Atomic runtime CLI boundary', () => {
     expect(caught).toMatchObject({ code });
     expect(caught.message).not.toContain(failure.stderr ?? 'ENOENT');
   });
+
+  it('projects the vault: intents with detail and memories with derivedFrom links', async () => {
+    const { execFile, calls } = createExecFile([
+      { stdout: JSON.stringify([{ id: 'PROJ::me::1', status: 'done', kind: 'feature', attested: 'fresh' }]) },
+      { stdout: JSON.stringify([{ id: '01mem0000000000000000000001', kind: 'decision', status: 'active', attested: 'none' }]) },
+      { stdout: JSON.stringify({
+        '@id': 'urn:atomic:intent:01INT000000000000000000001',
+        humanKey: 'PROJ::me::1',
+        title: 'An intent',
+        status: 'done',
+        why: 'Because',
+        hasAcceptanceCriterion: [{ '@id': 'urn:atomic:ac:01INT000000000000000000001-ac-1', acStatus: 'met', text: 'Done', verifiedBy: 'test', evidence: 'ran it' }],
+        hasTask: [{ '@id': 'urn:atomic:task:01INT000000000000000000001-1', taskStatus: 'open', text: 'Do it', satisfies: ['urn:atomic:ac:01INT000000000000000000001-ac-1'], touchesFile: ['src/a.ts'] }],
+        hasScopeIn: [{ '@id': 'x', text: 'in' }],
+        hasScopeOut: [{ '@id': 'y', text: 'out' }],
+        hasConstraint: [{ '@id': 'z', text: 'rule' }],
+      }) },
+      { stdout: JSON.stringify({
+        '@id': 'urn:atomic:memory:01mem0000000000000000000001',
+        memoryKind: 'decision',
+        status: 'active',
+        text: 'A memory',
+        derivedFrom: ['urn:atomic:ac:01INT000000000000000000001-ac-1'],
+      }) },
+    ]);
+    const runtime = createAtomicRuntime({ execFile });
+
+    await expect(runtime.vault('/repo')).resolves.toEqual({
+      status: 'available',
+      intents: [{
+        id: 'PROJ::me::1',
+        urn: 'urn:atomic:intent:01INT000000000000000000001',
+        title: 'An intent',
+        status: 'done',
+        kind: null,
+        why: 'Because',
+        acceptanceCriteria: [{ id: 'urn:atomic:ac:01INT000000000000000000001-ac-1', text: 'Done', status: 'met', verifiedBy: 'test', evidence: 'ran it' }],
+        tasks: [{ id: 'urn:atomic:task:01INT000000000000000000001-1', text: 'Do it', status: 'open', satisfies: ['urn:atomic:ac:01INT000000000000000000001-ac-1'], touchesFile: ['src/a.ts'] }],
+        scopeIn: ['in'],
+        scopeOut: ['out'],
+        constraints: ['rule'],
+        attested: 'fresh',
+      }],
+      memories: [{
+        id: '01mem0000000000000000000001',
+        urn: 'urn:atomic:memory:01mem0000000000000000000001',
+        kind: 'decision',
+        status: 'active',
+        text: 'A memory',
+        derivedFrom: ['urn:atomic:ac:01INT000000000000000000001-ac-1'],
+        attested: 'none',
+      }],
+    });
+
+    expect(calls.map((call) => call.args)).toEqual([
+      ['intent', 'list', '--json', '--no-color'],
+      ['memory', 'list', '--json', '--no-color'],
+      ['intent', 'show', 'PROJ::me::1', '--json', '--no-color'],
+      ['memory', 'show', '01mem0000000000000000000001', '--json', '--no-color'],
+    ]);
+  });
+
+  it('skips vault list rows without a usable id rather than failing the whole read', async () => {
+    const { execFile } = createExecFile([
+      { stdout: JSON.stringify([{ status: 'done' }, { id: '', status: 'done' }]) },
+      { stdout: '[]' },
+    ]);
+    const runtime = createAtomicRuntime({ execFile });
+
+    await expect(runtime.vault('/repo')).resolves.toEqual({ status: 'available', intents: [], memories: [] });
+  });
+
+  it('rejects malformed vault list output rather than returning an authoritative empty vault', async () => {
+    const { execFile } = createExecFile([{ stdout: '{not-json' }]);
+    const runtime = createAtomicRuntime({ execFile });
+
+    await expect(runtime.vault('/repo')).rejects.toMatchObject({ code: 'VERSION_INCOMPATIBLE' });
+  });
+
+  it('rejects a malformed intent detail rather than dropping it silently', async () => {
+    const { execFile } = createExecFile([
+      { stdout: JSON.stringify([{ id: 'PROJ::me::1', status: 'done' }]) },
+      { stdout: '[]' },
+      { stdout: JSON.stringify({ '@id': 'urn:atomic:intent:x' }) },
+    ]);
+    const runtime = createAtomicRuntime({ execFile });
+
+    await expect(runtime.vault('/repo')).rejects.toMatchObject({ code: 'VERSION_INCOMPATIBLE' });
+  });
 });

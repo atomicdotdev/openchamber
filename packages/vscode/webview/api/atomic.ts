@@ -4,6 +4,7 @@ import {
   AtomicHistoryResultSchema,
   AtomicOverviewSchema,
   AtomicProvenanceResultSchema,
+  AtomicVaultResultSchema,
   type AtomicAPI,
   type AtomicChangeDetail,
   type AtomicDiffRequest,
@@ -12,6 +13,7 @@ import {
   type AtomicHistoryResult,
   type AtomicOverview,
   type AtomicProvenanceResult,
+  type AtomicVaultResult,
 } from '@openchamber/ui/lib/api/types';
 import { sendBridgeMessage } from './bridge';
 import { z } from 'zod';
@@ -22,7 +24,7 @@ type AtomicBridgePayload =
   | { directory: string; options?: AtomicHistoryOptions }
   | { directory: string; change: string };
 
-type AtomicBridgeResult = AtomicOverview | AtomicDiffResult | AtomicHistoryResult | AtomicChangeDetail | AtomicProvenanceResult | null;
+type AtomicBridgeResult = AtomicOverview | AtomicDiffResult | AtomicHistoryResult | AtomicChangeDetail | AtomicProvenanceResult | AtomicVaultResult | null;
 
 export type AtomicBridge = (type: string, payload: AtomicBridgePayload) => Promise<AtomicBridgeResult>;
 
@@ -55,5 +57,8 @@ export const createVSCodeAtomicAPI = (bridge: AtomicBridge = sendAtomicBridgeMes
   },
   provenance(directory, change) {
     return bridgeResult(bridge, 'api:atomic:provenance', { directory, change }, 'provenance', AtomicProvenanceResultSchema);
+  },
+  vault(directory) {
+    return bridgeResult(bridge, 'api:atomic:vault', { directory }, 'vault', AtomicVaultResultSchema);
   },
 });

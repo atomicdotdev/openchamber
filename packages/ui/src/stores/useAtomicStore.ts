@@ -9,6 +9,7 @@ import type {
   AtomicHistoryResult,
   AtomicOverview,
   AtomicProvenanceResult,
+  AtomicVaultResult,
 } from '@/lib/api/types';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
@@ -28,6 +29,7 @@ export interface AtomicDirectoryState {
   changes: ReadonlyMap<string, AtomicQueryState<AtomicChangeDetail>>;
   diffs: ReadonlyMap<string, AtomicQueryState<AtomicDiffResult>>;
   provenance: ReadonlyMap<string, AtomicQueryState<AtomicProvenanceResult>>;
+  vault: AtomicQueryState<AtomicVaultResult>;
   diffCacheBytes: number;
 }
 
@@ -40,10 +42,11 @@ interface AtomicStore {
   loadChange: (directory: string, change: string, atomic: AtomicAPI) => Promise<AtomicChangeDetail>;
   loadDiff: (directory: string, request: AtomicDiffRequest, atomic: AtomicAPI) => Promise<AtomicDiffResult>;
   loadProvenance: (directory: string, change: string, atomic: AtomicAPI) => Promise<AtomicProvenanceResult>;
+  loadVault: (directory: string, atomic: AtomicAPI) => Promise<AtomicVaultResult>;
   resetForRuntimeSwitch: (runtimeKey: string) => void;
 }
 
-type AtomicChannel = 'overview' | 'history' | 'change' | 'diff' | 'provenance';
+type AtomicChannel = 'overview' | 'history' | 'change' | 'diff' | 'provenance' | 'vault';
 type RequestToken = {
   runtimeKey: string;
   runtimeGeneration: number;
@@ -77,6 +80,7 @@ const createDirectoryState = (): AtomicDirectoryState => ({
   changes: new Map(),
   diffs: new Map(),
   provenance: new Map(),
+  vault: emptyQuery(),
   diffCacheBytes: 0,
 });
 
@@ -308,6 +312,38 @@ export const useAtomicStore = create<AtomicStore>()(
         read: (state) => state.provenance,
         write: (state, provenance) => ({ ...state, provenance }),
       }),
+      loadVault: (requestedDirectory, atomic) => {
+        const directory = normalizeDirectory(requestedDirectory);
+        if (!directory) return Promise.reject(new Error('Atomic requests require a directory'));
+        const runtimeKey = getRuntimeKey();
+        const inFlightKey = scopedKey(runtimeKey, directory, 'vault');
+        // SAFETY: the vault channel key is written only with AtomicVaultResult promises.
+        const existing = inFlightRequests.get(inFlightKey) as Promise<AtomicVaultResult> | undefined;
+        if (existing) return existing;
+
+        const token = startRequest(directory, 'vault');
+        updateDirectory(directory, (state) => ({
+          ...state,
+          vault: { ...state.vault, loading: true, error: null },
+        }));
+        const promise = atomic.vault(directory).then((result) => {
+          if (!isTokenCurrent(token)) throw new Error('Atomic request was superseded');
+          updateDirectory(directory, (state) => ({ ...state, vault: { data: result, loading: false, error: null } }));
+          return result;
+        }).catch((error: Error) => {
+          if (isTokenCurrent(token)) {
+            updateDirectory(directory, (state) => ({
+              ...state,
+              vault: { ...state.vault, loading: false, error: errorMessage(error) },
+            }));
+          }
+          throw error;
+        }).finally(() => {
+          if (inFlightRequests.get(inFlightKey) === promise) inFlightRequests.delete(inFlightKey);
+        });
+        inFlightRequests.set(inFlightKey, promise);
+        return promise;
+      },
       resetForRuntimeSwitch: (runtimeKey) => {
         runtimeGeneration += 1;
         activeRuntimeKey = runtimeKey;
@@ -344,6 +380,9 @@ export const useAtomicDiff = (
 
 export const useAtomicProvenance = (directory: string, change: string): AtomicQueryState<AtomicProvenanceResult> =>
   useAtomicStore((state) => state.directories.get(normalizeDirectory(directory))?.provenance.get(change) ?? emptyQuery());
+
+export const useAtomicVault = (directory: string): AtomicQueryState<AtomicVaultResult> =>
+  useAtomicStore((state) => state.directories.get(normalizeDirectory(directory))?.vault ?? emptyQuery());
 
 const requireAtomicAPI = (): AtomicAPI => {
   const atomic = getRegisteredRuntimeAPIs()?.atomic;
@@ -392,6 +431,12 @@ const atomicRepositoryActions = {
   loadChange(directory: string, change: string): void {
     const atomic = requireAtomicAPI();
     void useAtomicStore.getState().loadChange(directory, change, atomic).catch(() => undefined);
+  },
+  // Load the directory's vault (intents + memories) for the read-only vault
+  // surface. Returns the promise so a panel can await/await-refresh explicitly.
+  loadVault(directory: string): Promise<void> {
+    const atomic = requireAtomicAPI();
+    return useAtomicStore.getState().loadVault(directory, atomic).then(() => undefined).catch(() => undefined);
   },
 };
 

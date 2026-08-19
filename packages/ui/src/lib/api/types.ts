@@ -961,6 +961,65 @@ export type AtomicProvenanceResult =
   | { status: 'available'; document: AtomicJsonValue }
   | { status: 'unavailable'; reason: AtomicUnavailableReason; message: string };
 
+/** One acceptance criterion of an intent, projected from the canonical node. */
+export interface AtomicIntentAcceptanceCriterion {
+  id: string;
+  text: string;
+  status: string;
+  verifiedBy: string | null;
+  evidence: string | null;
+}
+
+/** One task of an intent, projected from the canonical node. */
+export interface AtomicIntentTask {
+  id: string;
+  text: string;
+  status: string;
+  /** Acceptance-criterion ids this task satisfies. */
+  satisfies: string[];
+  /** Repository-relative paths the task names. */
+  touchesFile: string[];
+}
+
+/**
+ * One vault intent: the read-time projection of a canonical intent node plus
+ * its list-level attestation status. The `urn` is the canonical `@id`
+ * (`urn:atomic:intent:<uid>`) memories reference through `derivedFrom`.
+ */
+export interface AtomicIntent {
+  id: string;
+  urn: string;
+  title: string | null;
+  status: string;
+  kind: string | null;
+  why: string | null;
+  acceptanceCriteria: AtomicIntentAcceptanceCriterion[];
+  tasks: AtomicIntentTask[];
+  scopeIn: string[];
+  scopeOut: string[];
+  constraints: string[];
+  attested: string | null;
+}
+
+/**
+ * One vault memory: the read-time projection of a canonical memory node. Its
+ * `derivedFrom` holds the source urns (intents, acceptance criteria, …) that
+ * produced it — the semantic linkage the vault view groups intents by.
+ */
+export interface AtomicMemory {
+  id: string;
+  urn: string;
+  kind: string | null;
+  status: string;
+  text: string;
+  derivedFrom: string[];
+  attested: string | null;
+}
+
+export type AtomicVaultResult =
+  | { status: 'available'; intents: AtomicIntent[]; memories: AtomicMemory[] }
+  | { status: 'unavailable'; reason: AtomicUnavailableReason; message: string };
+
 export interface AtomicHistoryOptions {
   limit?: number;
   view?: string;
@@ -973,6 +1032,7 @@ export interface AtomicAPI {
   history(directory: string, options?: AtomicHistoryOptions): Promise<AtomicHistoryResult>;
   change(directory: string, change: string): Promise<AtomicChangeDetail>;
   provenance(directory: string, change: string): Promise<AtomicProvenanceResult>;
+  vault(directory: string): Promise<AtomicVaultResult>;
 }
 
 const atomicUnavailableReasonSchema = z.enum(['not-installed', 'not-repository', 'unsupported', 'error']);
@@ -1096,6 +1156,56 @@ export const AtomicChangeDetailSchema: z.ZodType<AtomicChangeDetail> = z.strictO
 
 export const AtomicProvenanceResultSchema: z.ZodType<AtomicProvenanceResult> = z.discriminatedUnion('status', [
   z.strictObject({ status: z.literal('available'), document: z.json() }),
+  z.strictObject({ status: z.literal('unavailable'), reason: atomicUnavailableReasonSchema, message: z.string() }),
+]);
+
+export const AtomicIntentAcceptanceCriterionSchema: z.ZodType<AtomicIntentAcceptanceCriterion> = z.strictObject({
+  id: z.string(),
+  text: z.string(),
+  status: z.string(),
+  verifiedBy: z.string().nullable(),
+  evidence: z.string().nullable(),
+});
+
+export const AtomicIntentTaskSchema: z.ZodType<AtomicIntentTask> = z.strictObject({
+  id: z.string(),
+  text: z.string(),
+  status: z.string(),
+  satisfies: z.array(z.string()),
+  touchesFile: z.array(z.string()),
+});
+
+export const AtomicIntentSchema: z.ZodType<AtomicIntent> = z.strictObject({
+  id: z.string(),
+  urn: z.string(),
+  title: z.string().nullable(),
+  status: z.string(),
+  kind: z.string().nullable(),
+  why: z.string().nullable(),
+  acceptanceCriteria: z.array(AtomicIntentAcceptanceCriterionSchema),
+  tasks: z.array(AtomicIntentTaskSchema),
+  scopeIn: z.array(z.string()),
+  scopeOut: z.array(z.string()),
+  constraints: z.array(z.string()),
+  attested: z.string().nullable(),
+});
+
+export const AtomicMemorySchema: z.ZodType<AtomicMemory> = z.strictObject({
+  id: z.string(),
+  urn: z.string(),
+  kind: z.string().nullable(),
+  status: z.string(),
+  text: z.string(),
+  derivedFrom: z.array(z.string()),
+  attested: z.string().nullable(),
+});
+
+export const AtomicVaultResultSchema: z.ZodType<AtomicVaultResult> = z.discriminatedUnion('status', [
+  z.strictObject({
+    status: z.literal('available'),
+    intents: z.array(AtomicIntentSchema),
+    memories: z.array(AtomicMemorySchema),
+  }),
   z.strictObject({ status: z.literal('unavailable'), reason: atomicUnavailableReasonSchema, message: z.string() }),
 ]);
 

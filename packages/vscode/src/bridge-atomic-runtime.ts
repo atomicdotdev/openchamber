@@ -10,6 +10,7 @@ import {
   type AtomicHistoryResult,
   type AtomicOverview,
   type AtomicProvenanceResult,
+  type AtomicVaultResult,
 } from '../../ui/src/lib/api/types';
 // @ts-expect-error The shared server runtime is JavaScript and intentionally owns its runtime contract.
 import { AtomicRuntimeError, createAtomicRuntime } from '../../web/server/lib/atomic/runtime.js';
@@ -20,6 +21,7 @@ export interface AtomicRuntime {
   history(directory: string, options?: AtomicHistoryOptions): Promise<AtomicHistoryResult>;
   change(directory: string, change: string): Promise<AtomicChangeDetail>;
   provenance(directory: string, change: string): Promise<AtomicProvenanceResult>;
+  vault(directory: string): Promise<AtomicVaultResult>;
 }
 
 type BridgeMessage = { id: string; type: string; payload?: unknown };
@@ -30,6 +32,7 @@ interface ServerAtomicRuntime {
   history(directory: string, options: { count: number; view: string | null }): Promise<AtomicHistoryResult>;
   change(directory: string, change: string): Promise<AtomicChangeDetail>;
   provenance(directory: string, change: string): Promise<AtomicProvenanceResult>;
+  vault(directory: string): Promise<AtomicVaultResult>;
 }
 
 const unavailableReason = (code: string) => {
@@ -40,7 +43,7 @@ const unavailableReason = (code: string) => {
 };
 
 export const createVSCodeAtomicRuntime = (server: ServerAtomicRuntime = createAtomicRuntime()): AtomicRuntime => {
-  const capabilityRead = async <T extends AtomicOverview | AtomicProvenanceResult>(operation: () => Promise<T>): Promise<T | Extract<AtomicOverview, { status: 'unavailable' }>> => {
+  const capabilityRead = async <T extends AtomicOverview | AtomicProvenanceResult | AtomicVaultResult>(operation: () => Promise<T>): Promise<T | Extract<AtomicOverview, { status: 'unavailable' }>> => {
     try {
       return await operation();
     } catch (error) {
@@ -64,6 +67,7 @@ export const createVSCodeAtomicRuntime = (server: ServerAtomicRuntime = createAt
     }),
     change: (directory, change) => server.change(directory, change),
     provenance: (directory, change) => capabilityRead(() => server.provenance(directory, change)),
+    vault: (directory) => capabilityRead(() => server.vault(directory)),
   };
 };
 
@@ -74,7 +78,7 @@ export async function handleAtomicBridgeMessage(message: BridgeMessage, runtime?
   }
 
   try {
-    let data: AtomicOverview | AtomicDiffResult | AtomicHistoryResult | AtomicChangeDetail | AtomicProvenanceResult;
+    let data: AtomicOverview | AtomicDiffResult | AtomicHistoryResult | AtomicChangeDetail | AtomicProvenanceResult | AtomicVaultResult;
     switch (message.type) {
       case 'api:atomic:overview': {
         const parsed = AtomicDirectoryRequestSchema.safeParse(message.payload);
@@ -104,6 +108,12 @@ export async function handleAtomicBridgeMessage(message: BridgeMessage, runtime?
         const parsed = AtomicChangeBridgeRequestSchema.safeParse(message.payload);
         if (!parsed.success) throw new Error('A valid directory and change are required for Atomic provenance');
         data = await runtime.provenance(parsed.data.directory, parsed.data.change);
+        break;
+      }
+      case 'api:atomic:vault': {
+        const parsed = AtomicDirectoryRequestSchema.safeParse(message.payload);
+        if (!parsed.success) throw new Error('A valid directory is required for the Atomic vault');
+        data = await runtime.vault(parsed.data.directory);
         break;
       }
       default:

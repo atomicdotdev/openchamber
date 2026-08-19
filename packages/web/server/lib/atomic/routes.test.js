@@ -12,6 +12,7 @@ const createApp = (runtimeOverrides = {}, directoryResult = { directory: '/repo'
     history: vi.fn(async () => ({ changes: [], metadata: { completeness: 'complete' } })),
     change: vi.fn(async () => ({ hash: 'ABCD2345' })),
     provenance: vi.fn(async () => ({ status: 'available', document: { '@context': 'x', '@graph': [] } })),
+    vault: vi.fn(async () => ({ status: 'available', intents: [], memories: [] })),
     ...runtimeOverrides,
   };
   const resolveProjectDirectory = vi.fn(async () => directoryResult);
@@ -103,5 +104,24 @@ describe('Atomic read-only routes', () => {
     await request(app).get('/api/atomic/overview').expect(400);
 
     expect(atomicRuntime.overview).not.toHaveBeenCalled();
+  });
+
+  it('resolves the project directory for the vault', async () => {
+    const { app, atomicRuntime, resolveProjectDirectory } = createApp();
+
+    await request(app).get('/api/atomic/vault?directory=/repo').expect(200);
+
+    expect(resolveProjectDirectory).toHaveBeenCalledOnce();
+    expect(atomicRuntime.vault).toHaveBeenCalledWith('/repo');
+  });
+
+  it('returns vault capability failures as an unavailable result', async () => {
+    const error = new AtomicRuntimeError('CLI_MISSING', 'Safe message', new Error('secret CLI output'));
+    const { app } = createApp({ vault: async () => { throw error; } });
+
+    const response = await request(app).get('/api/atomic/vault').expect(200);
+
+    expect(response.body).toEqual({ status: 'unavailable', reason: 'not-installed', message: 'Safe message' });
+    expect(response.text).not.toContain('secret CLI output');
   });
 });

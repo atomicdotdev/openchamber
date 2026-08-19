@@ -1,6 +1,8 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createVSCodeAtomicRuntime, handleAtomicBridgeMessage, type AtomicRuntime } from './bridge-atomic-runtime';
+// @ts-expect-error The shared server runtime is JavaScript and intentionally owns its runtime contract.
+import { AtomicRuntimeError } from '../../web/server/lib/atomic/runtime.js';
 
 const history = { changes: [], metadata: { completeness: 'complete' as const } };
 
@@ -13,6 +15,7 @@ const createRuntime = () => ({
     hunks: [], hasProvenance: null, attestation: null, ledger: [],
   }),
   provenance: async () => ({ status: 'unavailable' as const, reason: 'unsupported' as const, message: 'Unavailable' }),
+  vault: async () => ({ status: 'available' as const, intents: [], memories: [] }),
 }) satisfies AtomicRuntime;
 
 describe('VS Code Atomic runtime bridge', () => {
@@ -30,6 +33,7 @@ describe('VS Code Atomic runtime bridge', () => {
         hunks: [], hasProvenance: null, attestation: null, ledger: [],
       }),
       provenance: async () => ({ status: 'unavailable' as const, reason: 'unsupported' as const, message: 'Unavailable' }),
+      vault: async () => ({ status: 'available' as const, intents: [], memories: [] }),
     };
     const runtime = createVSCodeAtomicRuntime(server);
 
@@ -79,5 +83,36 @@ describe('VS Code Atomic runtime bridge', () => {
       id: '3', type: 'api:atomic:overview', success: false,
       error: 'Atomic runtime is unavailable in this VS Code host',
     });
+  });
+
+  test('delegates the directory-only vault request', async () => {
+    const response = await handleAtomicBridgeMessage({
+      id: '4', type: 'api:atomic:vault', payload: { directory: ' /workspace ' },
+    }, createRuntime());
+
+    assert.deepEqual(response, {
+      id: '4', type: 'api:atomic:vault', success: true,
+      data: { status: 'available', intents: [], memories: [] },
+    });
+  });
+
+  test('classifies a CLI failure during vault as an unavailable result', async () => {
+    const runtime = createVSCodeAtomicRuntime({
+      overview: async () => ({ status: 'unavailable' as const, reason: 'not-repository' as const, message: 'No repository' }),
+      diff: async () => ({ diff: '' }),
+      history: async () => history,
+      change: async (_directory: string, change: string) => ({
+        hash: change, sequence: null, state: null, message: '', timestamp: null, author: null, tagged: null,
+        hunks: [], hasProvenance: null, attestation: null, ledger: [],
+      }),
+      provenance: async () => ({ status: 'unavailable' as const, reason: 'unsupported' as const, message: 'Unavailable' }),
+      vault: async () => {
+        throw new AtomicRuntimeError('CLI_MISSING', 'Atomic CLI is not installed');
+      },
+    });
+
+    const result = await runtime.vault('/workspace');
+
+    assert.deepEqual(result, { status: 'unavailable', reason: 'not-installed', message: 'Atomic CLI is not installed' });
   });
 });

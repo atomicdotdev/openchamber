@@ -34,4 +34,24 @@ describe('VS Code webview Atomic API', () => {
       Object.defineProperty(globalThis, 'window', { configurable: true, value: originalWindow });
     }
   });
+
+  test('bridges the directory-only vault request and parses the response', async () => {
+    const originalWindow = globalThis.window;
+    try {
+      Object.defineProperty(globalThis, 'window', { configurable: true, value: new EventTarget() });
+      const { createVSCodeAtomicAPI } = await import('./atomic');
+      const requests: Array<{ type: string; payload?: Parameters<AtomicBridge>[1] }> = [];
+      const bridge: AtomicBridge = async (type, payload) => {
+        requests.push({ type, payload });
+        return { status: 'available', intents: [], memories: [] };
+      };
+
+      const result = await createVSCodeAtomicAPI(bridge).vault('/workspace');
+
+      assert.deepEqual(requests, [{ type: 'api:atomic:vault', payload: { directory: '/workspace' } }]);
+      assert.deepEqual(result, { status: 'available', intents: [], memories: [] });
+    } finally {
+      Object.defineProperty(globalThis, 'window', { configurable: true, value: originalWindow });
+    }
+  });
 });

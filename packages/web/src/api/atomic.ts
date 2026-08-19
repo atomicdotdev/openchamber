@@ -4,6 +4,7 @@ import {
   AtomicHistoryResultSchema,
   AtomicOverviewSchema,
   AtomicProvenanceResultSchema,
+  AtomicVaultResultSchema,
   type AtomicAPI,
 } from '@openchamber/ui/lib/api/types';
 import { runtimeFetch } from '@openchamber/ui/lib/runtime-fetch';
@@ -52,5 +53,8 @@ export const createWebAtomicAPI = (fetchRuntime: AtomicFetch = runtimeFetch): At
   },
   provenance(directory, change) {
     return getJson(fetchRuntime, '/api/atomic/provenance', new URLSearchParams({ directory, change }), 'provenance', AtomicProvenanceResultSchema);
+  },
+  vault(directory) {
+    return getJson(fetchRuntime, '/api/atomic/vault', new URLSearchParams({ directory }), 'vault', AtomicVaultResultSchema);
   },
 });
